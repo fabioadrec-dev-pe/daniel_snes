@@ -15,4 +15,5 @@
 .INCLUDE "game.asm"
 .INCLUDE "menu.asm"
 .INCLUDE "streets.asm"
+.INCLUDE "ending.asm"
 .INCLUDE "data.asm"

@@ -31,6 +31,7 @@ NMI:
     jsr DMAOAM
     jsr ApplyScroll
     jsr StreetsNMI
+    jsr EndingNMI
 
     lda nmi_col_need
     beq NMINoCol

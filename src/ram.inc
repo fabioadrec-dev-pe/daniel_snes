@@ -92,6 +92,14 @@
     menu_stage      db              ; 1..TOTAL_STAGES
     menu_lives      db              ; 1..9
     menu_swallow    db              ; 1 = JUMP was the cheat step this frame
+    end_scroll      dw              ; BG3 VOFS during STATE_ENDING
+    end_div         db
+    end_phase       db              ; 0 fade-in, 1 scroll/hold, 2 pause, 3 fade-out
+    end_screen      db              ; 0 story, 1 credits, 2 photo
+    end_bright      db              ; INIDISP 0..15
+    end_row_need    db
+    end_line        dw              ; text line to paint in NMI
+    end_last        dw              ; last bottom line painted
 .ENDE
 
 .ENUM $0200

@@ -72,3 +72,14 @@ Stage2: .INCBIN "gen/stage2.bin"
 Stage3: .INCBIN "gen/stage3.bin"
 Stage4: .INCBIN "gen/stage4.bin"
 .ENDS
+
+.BANK 9 SLOT 0
+.ORGA $8000
+.SECTION "BGEnding" FORCE
+EndingChr:     .INCBIN "gen/ending.chr"
+EndingMap:     .INCBIN "gen/ending.map"
+EndingPal:     .INCBIN "gen/ending.pal"
+EndingVeilPal: .INCBIN "gen/ending_veil.pal"
+EndingStory:   .INCBIN "gen/ending_story.bin"
+EndingCredits: .INCBIN "gen/ending_credits.bin"
+.ENDS

@@ -108,6 +108,11 @@ MLNotDying:
     jsr UpdateClear
     jmp MainLoop
 MLNotClear:
+    cmp #STATE_ENDING.b
+    bne MLNotEnding
+    jsr UpdateEnding
+    jmp MainLoop
+MLNotEnding:
     jsr UpdateEndScreen
     jmp MainLoop
 

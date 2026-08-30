@@ -439,7 +439,7 @@ UpdateClear:
     jsr EnterStage
     rts
 UCWin:
-    jsr EnterWin
+    jsr EnterEnding
 UClWait:
     sep #$20
     rts

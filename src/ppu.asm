@@ -472,6 +472,61 @@ LoadMenuBG:
     jsr LoadFont
     rts
 
+LoadEndingBG:
+    sep #$20
+    rep #$10
+    rep #$20
+    lda #EndingChr
+    sta dma_src
+    lda #ENDING_CHR_BYTES
+    sta dma_len
+    sep #$20
+    lda #:EndingChr
+    sta dma_bank
+    ldx #VRAM_BG2_TILES.w
+    jsr DmaToVRAM
+    rep #$20
+    lda #EndingMap
+    sta dma_src
+    lda #BG_MAP_BYTES
+    sta dma_len
+    sep #$20
+    lda #:EndingMap
+    sta dma_bank
+    ldx #VRAM_BG2_MAP.w
+    jsr DmaToVRAM
+LoadEndingVeilPal:
+    rep #$20
+    lda #EndingVeilPal
+    sta dma_src
+    lda #32
+    sta dma_len
+    sep #$20
+    lda #:EndingVeilPal
+    sta dma_bank
+    lda #$10.b
+    sta dma_dst
+    jsr DmaToCGRAM
+    jsr CopyBackdropFromBG2
+    jsr LoadFont
+    rts
+
+LoadEndingFullPal:
+    rep #$20
+    lda #EndingPal
+    sta dma_src
+    lda #32
+    sta dma_len
+    sep #$20
+    lda #:EndingPal
+    sta dma_bank
+    lda #$10.b
+    sta dma_dst
+    jsr DmaToCGRAM
+    jsr CopyBackdropFromBG2
+    jsr LoadFont
+    rts
+
 BgChrLo:
     .dw Bg1Chr, Bg2Chr, Bg3Chr, Bg4Chr, Bg5Chr
 BgMapLo:
@@ -687,6 +742,11 @@ ApplyScroll:
     beq ASStreets
     jsr ForceMode1Regs
     lda game_state
+    cmp #STATE_ENDING.b
+    bne ASAfterEnd
+    jmp ASEnding
+ASAfterEnd:
+    lda game_state
     cmp #STATE_PLAY.b
     bcc ASZeroJmp
     cmp #STATE_OVER.b
@@ -746,6 +806,22 @@ ASStreets:
     stz BG2HOFS
     stz BG3HOFS
     stz BG3HOFS
+    rts
+ASEnding:
+    stz BG1HOFS
+    stz BG1HOFS
+    stz BG1VOFS
+    stz BG1VOFS
+    stz BG2HOFS
+    stz BG2HOFS
+    stz BG2VOFS
+    stz BG2VOFS
+    stz BG3HOFS
+    stz BG3HOFS
+    lda end_scroll
+    sta BG3VOFS
+    lda end_scroll+1
+    sta BG3VOFS
     rts
 ASZero:
     stz BG1HOFS

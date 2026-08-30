@@ -12,7 +12,7 @@ import math
 import struct
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 
 # ----- java.util.Random -------------------------------------------------------
 
@@ -310,7 +310,9 @@ def image_to_4bpp_tiles(im: Image.Image, palette: list[tuple[int, int, int]]) ->
     return bytes(tiles)
 
 
-def image_to_unique_4bpp(im: Image.Image, max_tiles: int = 700) -> tuple[bytes, bytes, int]:
+def image_to_unique_4bpp(
+    im: Image.Image, max_tiles: int = 700, nearest: bool = False
+) -> tuple[bytes, bytes, int]:
     """8x8 unique tiles + 32x32 SNES tilemap (palette 1). CHR stays below BG3 at $5000."""
     w, h = im.size
     px = im.load()
@@ -324,7 +326,14 @@ def image_to_unique_4bpp(im: Image.Image, max_tiles: int = 700) -> tuple[bytes, 
             idx = seen.get(raw)
             if idx is None:
                 if len(tiles) >= max_tiles:
-                    idx = 0
+                    if nearest and tiles:
+                        idx = min(
+                            range(len(tiles)),
+                            key=lambda i: sum(abs(a - b) for a, b in zip(raw, tiles[i])),
+                        )
+                    else:
+                        idx = 0
+                    seen[raw] = idx
                 else:
                     idx = len(tiles)
                     seen[raw] = idx
@@ -652,6 +661,75 @@ def pack_street_lines(mapping: dict[str, int]) -> tuple[bytes, int, int]:
     return bytes(blob), n, scroll_end
 
 
+ENDING_STORY = (
+    "Finalmente, depois de uma infancia que passou fome e aguentar "
+    "clientes de sua barraca (quer dizer, APAPINHA), Daniel do Bolo, "
+    "homem nascido e criado em Brasilia Teimosa, ganhou a Mega Sena, "
+    "deu dinheiro para os parentes e amigos, e finalmente realiozou o "
+    "sonho de comprar um iate e curtir festinhas em alto mar. "
+    "Mas nao foi facil: precisou ir pra Noronha enfrentar como mestre "
+    "final do jogo ARAPINHA (isso, o boneco feio que e o mestre so "
+    "podia ser ele), que apos receber uma lapda de Serra Grannde "
+    "resolveu ajudar com o sonho de Daniel."
+)
+
+ENDING_CREDITS = [
+    "DANIEL DO BOLO'S ADVENTURE",
+    "",
+    "Voce venceu!",
+    "",
+    "GAME DESIGN",
+    "fabio_ad",
+    "",
+    "PROGRAMACAO (JAVA / LIBGDX)",
+    "fabio_ad",
+    "",
+    "ARTE PIXEL (16 BITS)",
+    "fabio_ad",
+    "",
+    "MUSICA E EFEITOS",
+    "fabio_ad",
+    "",
+    "AMBIENTACAO",
+    "Bairro Brasilia Teimosa",
+    "Recife/PE",
+    "",
+    "Obrigado por jogar!",
+    "",
+    "PONTOS 00000",
+]
+
+
+def wrap_paragraph(text: str, width: int = 28) -> list[str]:
+    out: list[str] = []
+    for para in fold_ascii(text).replace("\n", " ").split("  "):
+        para = para.strip()
+        if not para:
+            continue
+        words = para.split()
+        line = ""
+        for w in words:
+            trial = w if not line else line + " " + w
+            if len(trial) <= width:
+                line = trial
+            else:
+                if line:
+                    out.append(line)
+                line = w if len(w) <= width else w[:width]
+        if line:
+            out.append(line)
+    return out
+
+
+def pack_ending_lines(mapping: dict[str, int], lines: list[str]) -> tuple[bytes, int, int]:
+    blob = bytearray()
+    for text in lines:
+        blob += bytes(encode_text_line(text, mapping, 32))
+    n = len(lines)
+    scroll_end = n * 8 + 224
+    return bytes(blob), n, scroll_end
+
+
 def crop_dark_margins(im: Image.Image, thresh: int = 48) -> Image.Image:
     rgb = im.convert("RGB")
     px = rgb.load()
@@ -833,6 +911,25 @@ def main() -> None:
         meta[f"BG{i}_CHR_BYTES"] = n
     meta["MENU_CHR_BYTES"] = bg_lens[5]
 
+    end_im = Image.open(assets / "textures" / "ending_bg.jpg").convert("RGB")
+    # 8:7 already; crop sky so faces and the joke bubble fill 256x224.
+    ew, eh = end_im.size
+    cw, ch = 400, 350
+    left = max(0, (ew - cw) // 2)
+    top = max(0, eh - ch - 8)
+    end_im = end_im.crop((left, top, left + cw, top + ch))
+    end_im = end_im.resize((256, 224), Image.Resampling.LANCZOS)
+    end_im = ImageEnhance.Contrast(end_im).enhance(1.12)
+    end_q, end_colors = quantize_opaque(end_im, 16)
+    end_chr, end_map, end_ntiles = image_to_unique_4bpp(end_q, max_tiles=752, nearest=True)
+    (out / "ending.chr").write_bytes(end_chr)
+    (out / "ending.map").write_bytes(end_map)
+    (out / "ending.pal").write_bytes(palette_bytes(end_colors, 16))
+    veil = [(int(r * 0.45), int(g * 0.45), int(b * 0.45)) for r, g, b in end_colors]
+    (out / "ending_veil.pal").write_bytes(palette_bytes(veil, 16))
+    meta["ENDING_CHR_BYTES"] = len(end_chr)
+    print(f"ending: unique={end_ntiles} chr={len(end_chr)}")
+
     font_chr, mapping, font_m7 = make_font_chr()
     (out / "font.chr").write_bytes(font_chr)
     (out / "font_m7.bin").write_bytes(font_m7)
@@ -843,7 +940,7 @@ def main() -> None:
         + "".join(
             f".DEFINE FONT_{'SPC' if ch == ' ' else (ch if ch.isalnum() else 'X' + str(ord(ch)))} {idx}\n"
             for ch, idx in mapping.items()
-            if ch.isalnum() or ch in " <>:/"
+            if ch.isalnum() or ch in " <>:/'!"
         )
     )
 
@@ -889,6 +986,7 @@ def main() -> None:
         "STR_MVIDAS": "VIDAS: 0",
         "STR_HINTADJ": "ESQ/DIR AJUSTAR",
         "STR_HINTGO": "START CONFIRMA",
+        "STR_SONHO": "O SONHO",
     }
     str_bin = bytearray()
     str_off = {}
@@ -904,10 +1002,29 @@ def main() -> None:
     (out / "streets.bin").write_bytes(streets_bin)
     meta["STREET_COUNT"] = n_streets
     meta["STREET_SCROLL_END"] = scroll_end
+
+    story_lines = ["", "O SONHO", ""] + wrap_paragraph(ENDING_STORY, 28)
+    story_bin, n_story, story_end = pack_ending_lines(mapping, story_lines)
+    (out / "ending_story.bin").write_bytes(story_bin)
+    meta["END_STORY_COUNT"] = n_story
+    meta["END_STORY_SCROLL_END"] = story_end
+
+    cred_lines: list[str] = []
+    for line in ENDING_CREDITS:
+        wrapped = wrap_paragraph(line, 30) if line else [""]
+        cred_lines.extend(wrapped if wrapped else [""])
+    cred_bin, n_cred, cred_end = pack_ending_lines(mapping, cred_lines)
+    (out / "ending_credits.bin").write_bytes(cred_bin)
+    meta["END_CREDITS_COUNT"] = n_cred
+    meta["END_CREDITS_SCROLL_END"] = cred_end
+    meta["END_SCORE_LINE"] = n_cred - 1
+    meta["END_SCORE_COL"] = 17
+
     m7_hdma = make_m7_hdma()
     (out / "m7persp.bin").write_bytes(m7_hdma)
     meta["M7_HDMA_BYTES"] = len(m7_hdma)
     print(f"streets: lines={n_streets} bytes={len(streets_bin)} scroll_end={scroll_end}")
+    print(f"ending story={n_story} credits={n_cred} scroll={story_end}/{cred_end}")
     print(f"mode7 font={len(font_m7)} hdma={len(m7_hdma)}")
 
     write_meta(out / "meta.inc", **meta)
