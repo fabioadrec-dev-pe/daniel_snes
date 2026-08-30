@@ -471,6 +471,7 @@ def make_font_chr() -> tuple[bytes, dict[str, int]]:
     mapping: dict[str, int] = {}
     mapping[" "] = 0
     tiles = bytearray(encode_2bpp_tile([0] * 64))
+    m7 = bytearray(64)  # tile 0 empty, 8bpp row-major for Mode 7
     index = 1
     for ch in glyphs:
         if ch == " ":
@@ -505,9 +506,10 @@ def make_font_chr() -> tuple[bytes, dict[str, int]]:
                         break
                 idx.append(2 if ring else 0)
         tiles += encode_2bpp_tile(idx)
+        m7 += bytes(idx)
         index += 1
     mapping["."] = mapping.get(".", index - 1)
-    return bytes(tiles), mapping
+    return bytes(tiles), mapping, bytes(m7)
 
 
 _FOLD_ASCII = str.maketrans(
@@ -518,6 +520,29 @@ _FOLD_ASCII = str.maketrans(
 
 def fold_ascii(text: str) -> str:
     return text.translate(_FOLD_ASCII)
+
+
+def make_m7_hdma() -> bytes:
+    """Star Wars trapezoid on M7A only (M7D stays 1:1 so glyphs are not shredded).
+
+    2-line bands: small/narrow at the top, wide at the bottom.
+    """
+    band = 2
+    far = 0x01C0   # 1.75x zoom-out at y=0
+    near = 0x00A8  # 0.66x zoom-in at y=223
+    b = (near * 223) // (far - near)
+    a = far * b
+    out = bytearray()
+    y = 0
+    while y < 224:
+        n = min(band, 224 - y)
+        sc = a // (y + b)
+        sc = max(0x00A0, min(0x0200, sc))
+        out.append(n)
+        out += struct.pack("<H", sc & 0xFFFF)
+        y += n
+    out.append(0)
+    return bytes(out)
 
 
 def encode_text_line(text: str, mapping: dict[str, int], width: int) -> list[int]:
@@ -586,20 +611,44 @@ BRASILIA_STREETS = [
 ]
 
 
+def wrap_street_name(text: str, width: int = 32) -> list[str]:
+    t = fold_ascii(text).upper().strip()
+    if not t:
+        return [""]
+    out: list[str] = []
+    while t:
+        if len(t) <= width:
+            out.append(t)
+            break
+        chunk = t[:width]
+        sp = chunk.rfind(" ")
+        if sp <= 0:
+            out.append(t[:width])
+            t = t[width:].strip()
+        else:
+            out.append(t[:sp])
+            t = t[sp + 1 :].strip()
+    return out
+
+
 def pack_street_lines(mapping: dict[str, int]) -> tuple[bytes, int, int]:
-    """32-byte centered font rows: header, then the Java street list (one pass)."""
-    lines = [
+    """32-byte centered font rows. Long street names wrap so nothing is cut."""
+    lines: list[str] = [
         "BRASILIA TEIMOSA",
         "AS RUAS DO BAIRRO",
         "",
-        *BRASILIA_STREETS,
     ]
+    for name in BRASILIA_STREETS:
+        wrapped = wrap_street_name(name, 32)
+        lines.extend(wrapped)
+        if len(wrapped) > 1:
+            lines.append("")  # gap after a wrapped name
     blob = bytearray()
     for text in lines:
         blob += bytes(encode_text_line(text, mapping, 32))
     n = len(lines)
-    # 16px per line, then 224px to clear the last name off the top, plus one row.
-    scroll_end = n * 16 + 224 + 16
+    # 16px per line, plus one screen so the last name can leave the top.
+    scroll_end = n * 16 + 224
     return bytes(blob), n, scroll_end
 
 
@@ -784,9 +833,11 @@ def main() -> None:
         meta[f"BG{i}_CHR_BYTES"] = n
     meta["MENU_CHR_BYTES"] = bg_lens[5]
 
-    font_chr, mapping = make_font_chr()
+    font_chr, mapping, font_m7 = make_font_chr()
     (out / "font.chr").write_bytes(font_chr)
+    (out / "font_m7.bin").write_bytes(font_m7)
     meta["FONT_TILE_COUNT"] = len(font_chr) // 16
+    meta["FONT_M7_BYTES"] = len(font_m7)
     (out / "fontmap.inc").write_text(
         "; glyph -> tile\n"
         + "".join(
@@ -847,7 +898,11 @@ def main() -> None:
     (out / "streets.bin").write_bytes(streets_bin)
     meta["STREET_COUNT"] = n_streets
     meta["STREET_SCROLL_END"] = scroll_end
+    m7_hdma = make_m7_hdma()
+    (out / "m7persp.bin").write_bytes(m7_hdma)
+    meta["M7_HDMA_BYTES"] = len(m7_hdma)
     print(f"streets: lines={n_streets} bytes={len(streets_bin)} scroll_end={scroll_end}")
+    print(f"mode7 font={len(font_m7)} hdma={len(m7_hdma)}")
 
     write_meta(out / "meta.inc", **meta)
     # Also dump a small C-like report

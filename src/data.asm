@@ -11,6 +11,8 @@ SpritePal:  .INCBIN "gen/sprite_pal.bin"
 SineTab:    .INCBIN "gen/sine.bin"
 Strings:    .INCBIN "gen/strings.bin"
 Streets:    .INCBIN "gen/streets.bin"
+FontM7:     .INCBIN "gen/font_m7.bin"
+M7Persp:    .INCBIN "gen/m7persp.bin"
 .ENDS
 
 .BANK 2 SLOT 0

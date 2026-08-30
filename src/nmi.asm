@@ -23,6 +23,9 @@ NMI:
 
     sep #$20
     .ACCU 8
+    phb
+    phk
+    plb
     lda RDNMI
 
     jsr DMAOAM
@@ -46,6 +49,7 @@ NMINoHud:
     sep #$20
     lda #$01.b
     sta nmi_ready
+    plb
 
     rep #$30
     pla

@@ -1,49 +1,45 @@
-; Attract crawl: Brasilia Teimosa street names (text only, black BG).
-; Enters after TITLE_IDLE_FRAMES on the title. Any button or end of list
-; returns to the title. One BG3 32×32 map; rows stream in as it scrolls.
+; Attract crawl: Brasilia Teimosa street names on a Mode 7 plane.
+; Star Wars trapezoid via HDMA on M7A (narrow at the top, wide at the bottom).
+; Glyph height stays 1:1. The list scrolls up into the horizon.
 
 .BANK 0 SLOT 0
 .SECTION "Streets" FREE
-
-.DEFINE STREET_ATTR     $24
-.DEFINE STREET_PRE_ROWS 4           ; 32px waiting below the 224px screen
 
 EnterStreets:
     sep #$20
     stz NMITIMEN
     lda #INIDISP_FORCEBLANK.b
     sta INIDISP
+    stz HDMAEN
+    stz MOSAIC
     jsr HideAllSprites
     jsr DMAOAM
-    jsr ClearBG3
-    jsr LoadFont
-    ; Solid black backdrop (no menu bitmap).
-    stz CGADD
-    stz CGDATA
-    stz CGDATA
-    stz MOSAIC
-    stz HDMAEN
+    jsr StreetsLoadM7
+    jsr StreetsSetupHDMA
+    lda #BGMODE_7.b
+    sta BGMODE
+    lda #M7SEL_NOWRAP.b
+    sta M7SEL
+    lda #TM_BG1.b
+    sta TM
+    lda #$00.b
+    sta M7A
+    lda #$01.b
+    sta M7A
+    stz M7B
+    stz M7B
+    stz M7C
+    stz M7C
+    lda #$00.b
+    sta M7D
+    lda #$01.b
+    sta M7D
     rep #$20
     stz street_scroll
     stz street_next
-    stz street_src
     sep #$20
     stz street_div
     stz street_row_need
-    stz street_map_row
-    ; Prime the 4 tile-rows just below the visible area.
-    lda #STREET_PRE_ROWS.b
-    sta tmp0
-ESPrime:
-    jsr StreetsSetupFromContent
-    jsr StreetsPaintRow
-    rep #$20
-    inc street_next
-    sep #$20
-    dec tmp0
-    bne ESPrime
-    lda #TM_BG3.b
-    sta TM
     lda #STATE_STREETS.b
     sta game_state
     lda #INIDISP_FULLBRIGHT.b
@@ -52,92 +48,143 @@ ESPrime:
     sta NMITIMEN
     rts
 
-; street_next = content row. Sets street_map_row and street_src.
-StreetsSetupFromContent:
-    php
-    rep #$20
-    .ACCU 16
-    lda street_next
-    clc
-    adc #28.w                       ; first new row sits at tile-row 28
-    and #$001F.w
-    sep #$20
-    .ACCU 8
-    sta street_map_row
-    rep #$20
-    .ACCU 16
-    lda street_next
-    lsr a
-    bcs SSCBlank                    ; odd 8px row = gap between names
-    cmp #STREET_COUNT.w
-    bcs SSCBlank
-    asl a
-    asl a
-    asl a
-    asl a
-    asl a                           ; line * 32
-    sta street_src
-    plp
-    rts
-SSCBlank:
-    lda #$FFFF.w
-    sta street_src
-    plp
-    rts
-
-; Write 32 tiles at street_map_row from Streets[street_src], or blanks.
-; Force Blank or NMI only.
-StreetsPaintRow:
+; Pack Mode 7 VRAM in WRAM: even=map tile, odd=8bpp pixel, then one 16-bit DMA.
+StreetsLoadM7:
     php
     sep #$20
     .ACCU 8
     rep #$10
     .INDEX 16
-    lda #VMAIN_INC_HIGH.b
-    sta VMAIN
-    lda street_map_row
+    stz CGADD
+    ldx #32.w
+SLGPal:
+    stz CGDATA
+    stz CGDATA
+    dex
+    bne SLGPal
+    lda #$01.b
+    sta CGADD
+    lda #$FF.b
+    sta CGDATA
+    lda #$7F.b
+    sta CGDATA
+    lda #$42.b
+    sta CGDATA
+    lda #$0C.b
+    sta CGDATA
+    jsr StreetsPackVRAM
     rep #$20
     .ACCU 16
-    and #$001F.w
+    lda #$2000.w
+    sta dma_src
+    lda #32768.w
+    sta dma_len
+    sep #$20
+    .ACCU 8
+    lda #$7E.b
+    sta dma_bank
+    ldx #$0000.w
+    jsr DmaToVRAM
+    plp
+    rts
+
+; 16384 words at $7E2000: font pixels in high bytes, street names in low.
+StreetsPackVRAM:
+    php
+    rep #$30
+    .ACCU 16
+    .INDEX 16
+    lda #$0000.w
+    tax
+SBMZero:
+    sta.l $7E2000,x
+    inx
+    inx
+    cpx #$8000.w                    ; 32 KiB
+    bne SBMZero
+    ; Font 8bpp -> high bytes of words 0..FONT_M7_BYTES-1
+    ldx #$0000.w
+SBMFont:
+    sep #$20
+    .ACCU 8
+    lda.l FontM7,x
+    sta tmp0
+    phx
+    rep #$20
+    .ACCU 16
+    txa
     asl a
-    asl a
-    asl a
-    asl a
-    asl a
+    inc a
+    tax
+    sep #$20
+    .ACCU 8
+    lda tmp0
+    sta.l $7E2000,x
+    plx
+    inx
+    cpx #FONT_M7_BYTES.w
+    bne SBMFont
+    rep #$20
+    .ACCU 16
+    stz tmp0                        ; line index
+SBMLine:
+    lda tmp0
+    cmp #STREET_COUNT.w
+    bcs SBMDone
+    xba
+    and #$FF00.w
     clc
-    adc #VRAM_BG3_MAP
+    adc #48.w
+    asl a                           ; byte offset in interleaved buffer
+    sta tmp2
+    lda tmp0
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
     tax
-    jsr SetVRAMAddress
-    ; SetVRAMAddress returns with 8-bit A; need 16-bit for street_src / $FFFF.
-    rep #$20
-    .ACCU 16
-    lda street_src
-    cmp #$FFFF.w
-    beq SPRBlank
-    tax
-    ldy #32.w
-SPRCopy:
+    lda #32.w
+    sta tmp1
+SBMCopy:
     sep #$20
     .ACCU 8
     lda.l Streets,x
-    sta VMDATAL
-    lda #STREET_ATTR.b
-    sta VMDATAH
+    phx
+    ldx tmp2
+    sta.l $7E2000,x
+    plx
     inx
-    dey
-    bne SPRCopy
+    rep #$20
+    .ACCU 16
+    inc tmp2
+    inc tmp2
+    dec tmp1
+    bne SBMCopy
+    inc tmp0
+    bra SBMLine
+SBMDone:
     plp
     rts
-SPRBlank:
-    ldy #32.w
-SPRBlankL:
+
+; Direct HDMA mode 2: 8.8 scale to M7A only (width taper). Reset A1T every vblank.
+StreetsSetupHDMA:
     sep #$20
     .ACCU 8
-    stz VMDATAL
-    stz VMDATAH
-    dey
-    bne SPRBlankL
-    plp
+    lda #DMAP_WRITETWICE.b
+    sta DMAP1
+    lda #$1B.b                      ; M7A
+    sta BBAD1
+    rep #$20
+    .ACCU 16
+    lda #M7Persp
+    sep #$20
+    .ACCU 8
+    sta A1T1L
+    xba
+    sta A1T1H
+    lda #:M7Persp
+    sta A1B1
     rts
 
 UpdateStreets:
@@ -153,6 +200,10 @@ UpdateStreets:
 USNoBtn:
     sep #$20
     .ACCU 8
+    ; street_next = frames in this screen (mosaic + unused high)
+    rep #$20
+    inc street_next
+    sep #$20
     inc street_div
     lda street_div
     cmp #STREET_SCROLL_DIV.b
@@ -163,44 +214,25 @@ USNoBtn:
     inc street_scroll
     lda street_scroll
     cmp #STREET_SCROLL_END.w
-    bcc USKeep
-    jsr EnterTitle
-    rts
-USKeep:
-    lda street_scroll
-    and #$0007.w
-    bne USDone16
-    lda street_scroll
-    lsr a
-    lsr a
-    lsr a
-    sta street_next
-    cmp #STREET_PRE_ROWS.w
     bcc USDone16
-    jsr StreetsSetupFromContent
-    sep #$20
-    .ACCU 8
-    lda #1
-    sta street_row_need
+    jsr EnterTitle
     rts
 USDone16:
     sep #$20
 USDone:
     rts
 
-; NMI: optional BG3 row + palette cycle. A 8-bit, index 16-bit on entry.
+; NMI: arm HDMA, cycle Mode 7 color 1. A 8-bit, index 16-bit.
 StreetsNMI:
     sep #$20
     .ACCU 8
     lda game_state
     cmp #STATE_STREETS.b
-    bne SNDone
-    lda street_row_need
-    beq SNPal
-    stz street_row_need
-    jsr StreetsPaintRow
-SNPal:
-    ; Cycle BG3 pal 1 color 1 (CGRAM word $05). Mask before TAX (B is not 0).
+    bne SNOff
+    jsr StreetsSetupHDMA
+    lda #HDMAEN_M7.b
+    sta HDMAEN
+    stz MOSAIC
     lda frame_counter
     lsr a
     lsr a
@@ -213,16 +245,17 @@ SNPal:
     tax
     sep #$20
     .ACCU 8
-    lda #$05.b
+    lda #$01.b
     sta CGADD
     lda StreetPal.w,x
     sta CGDATA
     lda StreetPal+1.w,x
     sta CGDATA
-SNDone:
+    rts
+SNOff:
+    stz HDMAEN
     rts
 
-; BGR555, readable on black with the dark outline.
 StreetPal:
     .dw $7FFF, $7FE0, $3FF, $7D1F, $03E0, $3DFF, $7E10, $7FFF
 

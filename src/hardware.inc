@@ -28,6 +28,13 @@
 .DEFINE VMADDH      $2117
 .DEFINE VMDATAL     $2118
 .DEFINE VMDATAH     $2119
+.DEFINE M7SEL       $211A
+.DEFINE M7A         $211B
+.DEFINE M7B         $211C
+.DEFINE M7C         $211D
+.DEFINE M7D         $211E
+.DEFINE M7X         $211F
+.DEFINE M7Y         $2120
 .DEFINE CGADD       $2121
 .DEFINE CGDATA      $2122
 .DEFINE W12SEL      $2123
@@ -61,6 +68,16 @@
 .DEFINE A1B0        $4304
 .DEFINE DAS0L       $4305
 .DEFINE DAS0H       $4306
+.DEFINE DMAP1       $4310
+.DEFINE BBAD1       $4311
+.DEFINE A1T1L       $4312
+.DEFINE A1T1H       $4313
+.DEFINE A1B1        $4314
+.DEFINE DMAP2       $4320
+.DEFINE BBAD2       $4321
+.DEFINE A1T2L       $4322
+.DEFINE A1T2H       $4323
+.DEFINE A1B2        $4324
 .DEFINE WMDATA      $2180
 .DEFINE WMADDL      $2181
 .DEFINE WMADDM      $2182
@@ -87,6 +104,13 @@
 .DEFINE HVBJOY_AUTOJOY      $01
 .DEFINE HVBJOY_VBLANK       $80
 .DEFINE VMAIN_INC_HIGH      $80
+.DEFINE VMAIN_INC_LOW       $00
+.DEFINE BGMODE_7            $07
+.DEFINE M7SEL_NOWRAP        $80     ; overflow transparent (black)
+.DEFINE M7_CENTER           512
+.DEFINE M7_HOFS             384     ; map x=512 at screen x=128
+.DEFINE HDMAEN_M7           $02     ; channel 1 -> M7A (ch0 is OAM DMA)
+.DEFINE DMAP_WRITETWICE     $02
 
 .DEFINE TM_BG1              $01
 .DEFINE TM_BG2              $02
@@ -162,7 +186,7 @@
 .DEFINE STATE_STREETS       8
 
 .DEFINE TITLE_IDLE_FRAMES   300     ; ~5s on title before street crawl
-.DEFINE STREET_SCROLL_DIV   2       ; frames per pixel (~30 px/s)
+.DEFINE STREET_SCROLL_DIV   3       ; frames per map-pixel (Mode 7 floor)
 
 .DEFINE BOOT_FRAMES         90
 .DEFINE CLEAR_FRAMES        180

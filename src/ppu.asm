@@ -170,6 +170,94 @@ DmaToVRAM:
     plp
     rts
 
+; Drop Mode 7: Mode 1, identity matrix. Scroll is left to RestoreMode1 / ApplyScroll.
+ForceMode1Regs:
+    sep #$20
+    .ACCU 8
+    phk
+    plb
+    stz HDMAEN
+    stz MOSAIC
+    lda #BG1SC_64X32_AT_1000.b
+    sta BG1SC
+    lda #BG2SC_32X32_AT_1800.b
+    sta BG2SC
+    lda #BG3SC_32X32_AT_1C00.b
+    sta BG3SC
+    lda #BG12NBA_BG1_0_BG2_2.b
+    sta BG12NBA
+    lda #BG34NBA_BG3_5.b
+    sta BG34NBA
+    lda #OBJSEL_16_32_AT_6000.b
+    sta OBJSEL
+    stz M7SEL
+    lda #$00.b
+    sta M7A
+    lda #$01.b
+    sta M7A
+    lda #$00.b
+    sta M7A
+    lda #$01.b
+    sta M7A
+    stz M7B
+    stz M7B
+    stz M7C
+    stz M7C
+    lda #$00.b
+    sta M7D
+    lda #$01.b
+    sta M7D
+    stz M7X
+    stz M7X
+    stz M7Y
+    stz M7Y
+    stz W12SEL
+    stz W34SEL
+    stz WOBJSEL
+    stz WH0
+    lda #$FF.b
+    sta WH1
+    stz WH2
+    lda #$FF.b
+    sta WH3
+    stz WBGLOG
+    stz WOBJLOG
+    stz TS
+    stz TMW
+    stz TSW
+    stz CGWSEL
+    stz CGADSUB
+    stz SETINI
+    lda #BGMODE_1_BG3PRI.b
+    sta.l $002105
+    rts
+
+; After Mode 7 attract: Mode 1 + SNES-typical scroll.
+RestoreMode1:
+    php
+    sep #$20
+    jsr ForceMode1Regs
+    stz BG1HOFS
+    stz BG1HOFS
+    lda #$FF.b
+    sta BG1VOFS
+    lda #$03.b
+    sta BG1VOFS
+    stz BG2HOFS
+    stz BG2HOFS
+    lda #$FF.b
+    sta BG2VOFS
+    lda #$03.b
+    sta BG2VOFS
+    stz BG3HOFS
+    stz BG3HOFS
+    lda #$FF.b
+    sta BG3VOFS
+    lda #$03.b
+    sta BG3VOFS
+    plp
+    rts
+
 ; dma_src, dma_bank, dma_len, dma_dst = CGRAM index
 DmaToCGRAM:
     sep #$20
@@ -597,10 +685,15 @@ ApplyScroll:
     lda game_state
     cmp #STATE_STREETS.b
     beq ASStreets
+    jsr ForceMode1Regs
+    lda game_state
     cmp #STATE_PLAY.b
-    bcc ASZero
+    bcc ASZeroJmp
     cmp #STATE_OVER.b
-    bcs ASZero
+    bcc ASPlay
+ASZeroJmp:
+    jmp ASZero
+ASPlay:
     lda cam_x
     sta BG1HOFS
     lda cam_x+1
@@ -621,20 +714,54 @@ ApplyScroll:
     sta BG2HOFS
     rts
 ASStreets:
+    ; Mode 7 + HDMA M7A taper. VOFS = +scroll (names recede toward the horizon).
+    lda #<M7_HOFS
+    sta BG1HOFS
+    lda #>M7_HOFS
+    sta BG1HOFS
     lda street_scroll
-    sta BG3VOFS
+    sta BG1VOFS
     lda street_scroll+1
-    sta BG3VOFS
-    stz BG1HOFS
-    stz BG1HOFS
+    sta BG1VOFS
+    ; Identity D (glyph height). HDMA overwrites A per band for the taper.
+    lda #$00.b
+    sta M7A
+    lda #$01.b
+    sta M7A
+    stz M7B
+    stz M7B
+    stz M7C
+    stz M7C
+    lda #$00.b
+    sta M7D
+    lda #$01.b
+    sta M7D
+    lda #<M7_CENTER
+    sta M7X
+    lda #>M7_CENTER
+    sta M7X
+    stz M7Y
+    stz M7Y
     stz BG2HOFS
     stz BG2HOFS
+    stz BG3HOFS
+    stz BG3HOFS
     rts
 ASZero:
     stz BG1HOFS
     stz BG1HOFS
+    lda #$FF.b
+    sta BG1VOFS
+    lda #$03.b
+    sta BG1VOFS
     stz BG2HOFS
     stz BG2HOFS
+    lda #$FF.b
+    sta BG2VOFS
+    lda #$03.b
+    sta BG2VOFS
+    stz BG3HOFS
+    stz BG3HOFS
     lda #$FF.b
     sta BG3VOFS
     lda #$03.b

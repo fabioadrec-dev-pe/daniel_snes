@@ -18,6 +18,7 @@ EnterTitle:
     stz NMITIMEN
     lda #INIDISP_FORCEBLANK.b
     sta INIDISP
+    jsr RestoreMode1
     jsr LoadSharedGraphics
     jsr LoadMenuBG
     jsr ClearBG3
@@ -95,6 +96,7 @@ EnterStage:
     stz NMITIMEN
     lda #INIDISP_FORCEBLANK.b
     sta INIDISP
+    jsr RestoreMode1
     jsr LoadStageBlob
     jsr LoadSharedGraphics
     jsr LoadStageBG
