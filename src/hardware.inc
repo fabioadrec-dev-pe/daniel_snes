@@ -120,10 +120,24 @@
 .DEFINE MAP_HEADER          16
 .DEFINE MAP_WRAM            $7E2000
 .DEFINE ENEMY_WRAM          $7E3000
-.DEFINE COIN_WRAM           $7E3100
+.DEFINE COIN_WRAM           $7E3200
 .DEFINE HUD_WRAM            $7E0500
 .DEFINE ENEMY_MAX           16
-.DEFINE ENEMY_SIZE          16
+.DEFINE ENEMY_SIZE          18
+; Enemy slot: flags, type, hp, anim, x.w, y.w, vx.w, vy.w, xf, yf, timer, base_y, atimer, pad
+.DEFINE EN_OFF_FLAGS        0
+.DEFINE EN_OFF_TYPE         1
+.DEFINE EN_OFF_HP           2
+.DEFINE EN_OFF_ANIM         3
+.DEFINE EN_OFF_X            4
+.DEFINE EN_OFF_Y            6
+.DEFINE EN_OFF_VX           8
+.DEFINE EN_OFF_VY           10
+.DEFINE EN_OFF_XF           12
+.DEFINE EN_OFF_YF           13
+.DEFINE EN_OFF_TIMER        14
+.DEFINE EN_OFF_BASEY        15
+.DEFINE EN_OFF_ATIMER       16
 .DEFINE COIN_MAX            48
 .DEFINE COIN_SIZE           6
 .DEFINE COIN_DRAW_MAX       8

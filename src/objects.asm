@@ -1,4 +1,5 @@
 ; Enemies and coins. Same patrol/stomp rules as the Java game, without audio.
+; Walker/fast/tank: ground patrol. Flyer: sine flight + wall turn. Boss: patrol + jump.
 
 .BANK 0 SLOT 0
 .SECTION "Objects" FREE
@@ -7,15 +8,29 @@ HpTab:
     .db 1,1,1,3,5
 SpdTab:
     .dw SPD_WALKER, SPD_FLYER, SPD_FAST, SPD_TANK, SPD_BOSS
-PalTab:
-    .db 2,4,8,10,12
-    ; OAM pal bits 1-3: walker=1 flyer=2 fast=4 tank=5 boss=6 (coin=3 castle=7)
+; OAM attr: pri2 | pal<<1. walker=1 flyer=2 fast=4 tank=5 boss=6 (coin=3 castle=7)
+AttrTab:
+    .db $22,$24,$28,$2A,$2C
 SizeTab:
-    .db 1,0,0,1,1                    ; 32px vs 16px
+    .db 1,0,0,1,2                    ; 32 / 16 / 16 / 32 / 48 (boss metasprite)
 TileBase:
     .dw SPR_WALKER_TILE, SPR_FLYER_TILE, SPR_FAST_TILE, SPR_TANK_TILE, SPR_BOSS_TILE
 TileStep:
-    .db 4,2,2,4,4                    ; SNES 16-wide sheet: 32px stride 4, 16px stride 2
+    .db 4,2,2,4,6                    ; 32px stride 4, 16px stride 2, 48px stride 6
+HitW:
+    .db 24,16,16,24,48
+HitH:
+    .db 24,16,16,24,48
+SprH:
+    .db 32,16,16,32,48
+SprXOff:
+    .db 4,0,0,4,0                    ; 32px pad around 24px boxes
+AnimDelay:
+    .db 9,12,5,15,18                 ; ~0.15 / 0.20 / 0.08 / 0.25 / 0.30 s
+AnimFrames:
+    .db 4,2,4,2,2
+PtsTab:
+    .dw 200,250,300,500,5000
 
 ; A = byte at $7E:tmp1, tmp1++. Uses X.
 Read7EInc:
@@ -94,40 +109,44 @@ IEBody:
     jsr Read7EInc
     sep #$20
     ldx tmp2
-    sta.l $7E0001,x
+    sta.l $7E0000+EN_OFF_TYPE,x
     lda #EF_ALIVE.b
-    sta.l $7E0000,x
-    lda.l $7E0001,x
+    sta.l $7E0000+EN_OFF_FLAGS,x
+    lda.l $7E0000+EN_OFF_TYPE,x
     phx
+    rep #$20
+    and #$00FF.w
     tay
+    sep #$20
     lda HpTab.w,y
     plx
-    sta.l $7E0002,x
+    sta.l $7E0000+EN_OFF_HP,x
     jsr Read7EInc
     sep #$20
     ldx tmp2
-    sta.l $7E0004,x
+    sta.l $7E0000+EN_OFF_X,x
     jsr Read7EInc
     sep #$20
     ldx tmp2
-    sta.l $7E0005,x
+    sta.l $7E0000+EN_OFF_X+1,x
     jsr Read7EInc
     sep #$20
     ldx tmp2
-    sta.l $7E0006,x
-    sta.l $7E000F,x
+    sta.l $7E0000+EN_OFF_Y,x
+    sta.l $7E0000+EN_OFF_BASEY,x
     jsr Read7EInc
     sep #$20
     ldx tmp2
-    sta.l $7E0007,x
-    lda.l $7E0001,x
+    sta.l $7E0000+EN_OFF_Y+1,x
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
     asl a
     tay
-    rep #$20
     lda SpdTab.w,y
     eor #$FFFF
     inc a
-    sta.l $7E0008,x
+    sta.l $7E0000+EN_OFF_VX,x
     sep #$20
     inc tmp0
     jmp IELoop
@@ -240,10 +259,10 @@ UELoop:
     rts
 UEGo:
     jsr EnemyPtr
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
     beq UENext
-    lda.l $7E0001,x
+    lda.l $7E0000+EN_OFF_TYPE,x
     cmp #EN_FLYER
     beq UEFlyer
     jsr EnemyPatrol
@@ -251,18 +270,32 @@ UEGo:
 UEFlyer:
     jsr EnemyFlyer
 UEAnim:
-    lda frame_counter
-    lsr a
-    lsr a
-    lsr a
-    and #1
-    sta.l $7E0003,x
+    lda.l $7E0000+EN_OFF_ATIMER,x
+    inc a
+    sta.l $7E0000+EN_OFF_ATIMER,x
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
+    tay
+    sep #$20
+    lda.l $7E0000+EN_OFF_ATIMER,x
+    cmp AnimDelay.w,y
+    bcc UENext
+    lda #$00.b
+    sta.l $7E0000+EN_OFF_ATIMER,x
+    lda.l $7E0000+EN_OFF_ANIM,x
+    inc a
+    sta.l $7E0000+EN_OFF_ANIM,x
+    cmp AnimFrames.w,y
+    bcc UENext
+    lda #$00.b
+    sta.l $7E0000+EN_OFF_ANIM,x
 UENext:
     inc obj_i
     jmp UELoop
 
 EnemyPtr:
-    ; obj_i = index -> X = ENEMY_WRAM + i*16
+    ; obj_i = index -> X = ENEMY_WRAM + i*ENEMY_SIZE
     sep #$20
     lda obj_i
     sta WRMPYA
@@ -277,86 +310,136 @@ EnemyPtr:
     clc
     adc #ENEMY_WRAM & $FFFF
     tax
+    ; 8-bit TAY/TAX copies hidden B into YH/XH. Pointers live in $30xx, so
+    ; leave B=0 or type-as-index becomes $30tt and every .w,y table reads 0.
+    lda #$0000.w
     sep #$20
     rts
 
+; 8.8 vx -> x,xf. X = enemy ptr.
+EnemyAddVelX:
+    php
+    sep #$20
+    lda #$00.b
+    lda.l $7E0000+EN_OFF_VX+1,x
+    bpl EAXPos
+    lda #$FF.b
+    bra EAXSign
+EAXPos:
+    lda #$00.b
+EAXSign:
+    pha
+    lda.l $7E0000+EN_OFF_XF,x
+    clc
+    adc.l $7E0000+EN_OFF_VX,x
+    sta.l $7E0000+EN_OFF_XF,x
+    lda.l $7E0000+EN_OFF_X,x
+    adc.l $7E0000+EN_OFF_VX+1,x
+    sta.l $7E0000+EN_OFF_X,x
+    pla
+    adc.l $7E0000+EN_OFF_X+1,x
+    sta.l $7E0000+EN_OFF_X+1,x
+    plp
+    rts
+
+EnemyAddVelY:
+    php
+    sep #$20
+    lda.l $7E0000+EN_OFF_VY+1,x
+    bpl EAYPos
+    lda #$FF.b
+    bra EAYSign
+EAYPos:
+    lda #$00.b
+EAYSign:
+    pha
+    lda.l $7E0000+EN_OFF_YF,x
+    clc
+    adc.l $7E0000+EN_OFF_VY,x
+    sta.l $7E0000+EN_OFF_YF,x
+    lda.l $7E0000+EN_OFF_Y,x
+    adc.l $7E0000+EN_OFF_VY+1,x
+    sta.l $7E0000+EN_OFF_Y,x
+    pla
+    adc.l $7E0000+EN_OFF_Y+1,x
+    sta.l $7E0000+EN_OFF_Y+1,x
+    plp
+    rts
+
+EnemyFlipVx:
+    php
+    rep #$20
+    .ACCU 16
+    lda.l $7E0000+EN_OFF_VX,x
+    eor #$FFFF
+    inc a
+    sta.l $7E0000+EN_OFF_VX,x
+    plp
+    rts
+
 EnemyPatrol:
-    ; gravity + move + turn on wall/ledge. X = ptr
+    ; gravity + 8.8 move + turn on wall / grounded ledge. X = ptr
     php
     sep #$20
     .ACCU 8
     rep #$10
     .INDEX 16
     phx
-    lda.l $7E0001,x
+    lda.l $7E0000+EN_OFF_TYPE,x
     cmp #EN_BOSS
     bne EPNoBoss
-    lda.l $7E000E,x
+    lda.l $7E0000+EN_OFF_TIMER,x
     inc a
-    sta.l $7E000E,x
-    lda.l $7E000E,x
+    sta.l $7E0000+EN_OFF_TIMER,x
     cmp #BOSS_JUMP_T
     bcc EPNoBoss
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_GROUND.b
     beq EPNoBoss
     lda #$00.b
-    sta.l $7E000E,x
+    sta.l $7E0000+EN_OFF_TIMER,x
     rep #$20
     lda #BOSS_JUMP_V
-    sta.l $7E000A,x
+    sta.l $7E0000+EN_OFF_VY,x
     sep #$20
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #$FB.b
-    sta.l $7E0000,x
+    sta.l $7E0000+EN_OFF_FLAGS,x
 EPNoBoss:
     plx
     ; gravity
     rep #$20
     .ACCU 16
-    lda.l $7E000A,x
+    lda.l $7E0000+EN_OFF_VY,x
     sec
     sbc #GRAVITY_F.w
-    sta.l $7E000A,x
-    ; pixel step from vx/vy high bytes (signed)
+    sta.l $7E0000+EN_OFF_VY,x
+    jsr EnemyAddVelX
+    jsr EnemyAddVelY
+    ; feet: center-x, y-1. While rising, do not treat a platform we jump
+    ; into as a floor — that snapped the 48px boss up onto every ledge.
     sep #$20
-    lda.l $7E0009,x
-    sta tmp1
-    bmi EPXNeg
-    stz tmp1+1
-    bra EPXAdd
-EPXNeg:
-    lda #$FF
-    sta tmp1+1
-EPXAdd:
+    lda.l $7E0000+EN_OFF_TYPE,x
     rep #$20
-    .ACCU 16
-    lda.l $7E0004,x
-    clc
-    adc tmp1
-    sta.l $7E0004,x
+    and #$00FF.w
+    tay
     sep #$20
-    lda.l $7E000B,x
-    sta tmp1
-    bmi EPYNeg
-    stz tmp1+1
-    bra EPYAdd
-EPYNeg:
-    lda #$FF
-    sta tmp1+1
-EPYAdd:
+    lda HitW.w,y
+    lsr a
+    sta tmp0
+    stz tmp0+1
     rep #$20
-    .ACCU 16
-    lda.l $7E0006,x
+    lda.l $7E0000+EN_OFF_X,x
     clc
-    adc tmp1
-    sta.l $7E0006,x
-    ; collide feet
-    lda.l $7E0004,x
-    clc
-    adc #8.w
+    adc tmp0
     sta tile_px
-    lda.l $7E0006,x
+    lda.l $7E0000+EN_OFF_VY,x
+    beq EPFloor
+    bmi EPFloor
+    jmp EPAir
+EPFloor:
+    lda.l $7E0000+EN_OFF_Y,x
+    dec a
     sta tile_py
     phx
     jsr GetTile
@@ -364,13 +447,12 @@ EPYAdd:
     plx
     beq EPAir
     sep #$20
-    lda.l $7E0000,x
-    ora #EF_GROUND.b
-    sta.l $7E0000,x
-    lda #$00.b
-    sta.l $7E000A,x
-    sta.l $7E000B,x
-    ; snap y
+    lda tile_id
+    cmp #TILE_PLATFORM
+    beq EPAir
+    lda.l $7E0000+EN_OFF_TYPE,x
+    cmp #EN_BOSS
+    bne EPSnap
     rep #$20
     lda tile_py
     lsr a
@@ -382,91 +464,120 @@ EPYAdd:
     asl a
     asl a
     asl a
-    sta.l $7E0006,x
+    cmp #40.w
+    bcc EPSnap16
+    jmp EPAir
+EPSnap:
+    rep #$20
+EPSnap16:
+    lda tile_py
+    lsr a
+    lsr a
+    lsr a
+    lsr a
+    inc a
+    asl a
+    asl a
+    asl a
+    asl a
+    sta tmp1
+    lda.l $7E0000+EN_OFF_Y,x
+    sta tmp0
+    lda tmp1
+    sec
+    sbc tmp0
+    beq EPLand
+    bcc EPLand
+    cmp #8.w
+    bcc EPLand
+    jmp EPAir
+EPLand:
+    lda tmp1
+    sta.l $7E0000+EN_OFF_Y,x
+    sep #$20
+    lda.l $7E0000+EN_OFF_FLAGS,x
+    ora #EF_GROUND.b
+    sta.l $7E0000+EN_OFF_FLAGS,x
+    lda #$00.b
+    sta.l $7E0000+EN_OFF_VY,x
+    sta.l $7E0000+EN_OFF_VY+1,x
+    sta.l $7E0000+EN_OFF_YF,x
     bra EPTurn
 EPAir:
     sep #$20
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #$FB.b
-    sta.l $7E0000,x
+    sta.l $7E0000+EN_OFF_FLAGS,x
 EPTurn:
-    ; turn if wall ahead or no floor
+    ; Ahead tile at the feet. Skip a mid-body wall probe: the 48px boss
+    ; treated floating platforms as walls and spun in place.
     sep #$20
-    lda.l $7E0009,x
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
+    tay
+    sep #$20
+    lda HitW.w,y
+    sta tmp0
+    stz tmp0+1
+    lda.l $7E0000+EN_OFF_VX+1,x
     bmi EPLeft
-    ; facing right (vx>0) wait vx high
-    lda.l $7E0009,x
-    bpl EPRightF
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc tmp0
+    sta tile_px
+    bra EPLedge
 EPLeft:
     rep #$20
-    .ACCU 16
-    lda.l $7E0004,x
+    lda.l $7E0000+EN_OFF_X,x
     dec a
     sta tile_px
-    bra EPWall
-EPRightF:
+EPLedge:
+    sep #$20
+    lda.l $7E0000+EN_OFF_FLAGS,x
+    and #EF_GROUND.b
+    beq EPEdge
     rep #$20
-    .ACCU 16
-    lda.l $7E0004,x
-    clc
-    adc #16.w
-    sta tile_px
-EPWall:
-    lda.l $7E0006,x
-    clc
-    adc #8.w
-    sta tile_py
-    phx
-    jsr GetTile
-    jsr IsSolid
-    plx
-    bne EPFlip
-    ; ledge: tile below ahead
-    rep #$20
-    lda.l $7E0006,x
+    lda.l $7E0000+EN_OFF_Y,x
     dec a
     sta tile_py
     phx
     jsr GetTile
     jsr IsSolid
     plx
-    bne EPNoFlip
-EPFlip:
-    ; negate vx
+    bne EPEdge
+    jsr EnemyFlipVx
+EPEdge:
     rep #$20
-    lda.l $7E0008,x
-    eor #$FFFF
-    inc a
-    sta.l $7E0008,x
+    lda.l $7E0000+EN_OFF_X,x
+    bpl EPNotL
+    lda #0
+    sta.l $7E0000+EN_OFF_X,x
+    jsr EnemyFlipVx
+    bra EPNoFlip
+EPNotL:
+    lda world_w
+    sec
+    sbc tmp0
+    cmp.l $7E0000+EN_OFF_X,x
+    bcs EPNoFlip
+    sta.l $7E0000+EN_OFF_X,x
+    jsr EnemyFlipVx
 EPNoFlip:
     plp
     rts
 
 EnemyFlyer:
-    ; horizontal pixel step from vx high
-    sep #$20
-    lda.l $7E0009,x
-    sta tmp1
-    bmi EFNeg
-    stz tmp1+1
-    bra EFAdd
-EFNeg:
-    lda #$FF
-    sta tmp1+1
-EFAdd:
-    rep #$20
-    lda.l $7E0004,x
-    clc
-    adc tmp1
-    sta.l $7E0004,x
+    jsr EnemyAddVelX
     ; y = base_y + sine[phase]
     sep #$20
-    lda.l $7E000E,x
+    lda.l $7E0000+EN_OFF_TIMER,x
     inc a
     inc a
-    sta.l $7E000E,x
+    sta.l $7E0000+EN_OFF_TIMER,x
     phx
-    lda.l $7E000E,x
+    lda.l $7E0000+EN_OFF_TIMER,x
     tax
     lda.l SineTab,x
     plx
@@ -478,21 +589,48 @@ EFAdd:
     sta tmp1+1
 EFPos:
     sep #$20
-    lda.l $7E000F,x
+    lda.l $7E0000+EN_OFF_BASEY,x
     sta tmp2
     stz tmp2+1
     rep #$20
     lda tmp2
     clc
     adc tmp1
-    sta.l $7E0006,x
-    ; turn at world edges
-    lda.l $7E0004,x
+    sta.l $7E0000+EN_OFF_Y,x
+    ; wall at ahead x, center y
+    sep #$20
+    lda.l $7E0000+EN_OFF_VX+1,x
+    bmi EFWallL
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc #16.w
+    sta tile_px
+    bra EFWallY
+EFWallL:
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
+    dec a
+    sta tile_px
+EFWallY:
+    lda.l $7E0000+EN_OFF_Y,x
+    clc
+    adc #8.w
+    sta tile_py
+    phx
+    jsr GetTile
+    jsr IsSolid
+    plx
+    beq EFNoWall
+    jsr EnemyFlipVx
+EFNoWall:
+    ; world edges
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
     bpl EFNotL
-    lda #$00.b
-    sta.l $7E0004,x
-    sta.l $7E0005,x
-    jsr EPFlip
+    lda #0
+    sta.l $7E0000+EN_OFF_X,x
+    jsr EnemyFlipVx
     rts
 EFNotL:
     cmp world_w
@@ -500,13 +638,16 @@ EFNotL:
     lda world_w
     sec
     sbc #16
-    sta.l $7E0004,x
-    jsr EPFlip
+    sta.l $7E0000+EN_OFF_X,x
+    jsr EnemyFlipVx
 EFOk:
     rts
 
 DrawEnemiesSpr:
     sep #$20
+    .ACCU 8
+    rep #$10
+    .INDEX 16
     stz obj_i
 DESLoop:
     lda obj_i
@@ -515,42 +656,153 @@ DESLoop:
     rts
 DESGo:
     jsr EnemyPtr
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
-    beq DESNext
-    rep #$20
-    lda.l $7E0004,x
-    sec
-    sbc cam_x
-    sta spr_x
-    lda.l $7E0006,x
-    sta tmp1
+    bne DESAlive
+    jmp DESNext
+DESAlive:
+    lda.l $7E0000+EN_OFF_TYPE,x
+    cmp #EN_BOSS
+    bne DESNorm
+    jsr DrawBossSpr
+    jmp DESNext
+DESNorm:
     sep #$20
-    lda.l $7E0001,x
+    .ACCU 8
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
     tay
+    sep #$20
+    lda SprXOff.w,y
+    sta tmp0
+    stz tmp0+1
     lda SizeTab.w,y
     sta spr_large
-    lda #32
-    cpy #EN_FLYER
-    beq DES16
-    cpy #EN_FAST
-    bne DESH
-DES16:
-    lda #16
-DESH:
+    lda AttrTab.w,y
+    sta spr_attr
+    lda SprH.w,y
+    sta tmp2
+    lda TileStep.w,y
+    sta tmp2+1
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
+    sec
+    sbc cam_x
+    sec
+    sbc tmp0
+    sta spr_x
+    lda.l $7E0000+EN_OFF_Y,x
+    sta tmp1
+    sep #$20
+    lda tmp2
     jsr WorldToScreenY
-    lda.l $7E0001,x
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
     asl a
     tay
-    rep #$20
     lda TileBase.w,y
     sta spr_tile
     sep #$20
-    lda.l $7E0003,x
+    lda.l $7E0000+EN_OFF_ANIM,x
     sta WRMPYA
-    lda.l $7E0001,x
-    tay
-    lda TileStep.w,y
+    lda tmp2+1
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc spr_tile
+    sta spr_tile
+    sep #$20
+    lda.l $7E0000+EN_OFF_VX+1,x
+    bpl DESNoFlip
+    lda spr_attr
+    ora #$40.b
+    sta spr_attr
+DESNoFlip:
+    phx
+    jsr WriteSprite
+    plx
+DESNext:
+    inc obj_i
+    jmp DESLoop
+
+; 48×48 boss = 3×3 of 16×16. Frame 1 sits 6 tiles to the right of frame 0.
+; tmp2 = origin screen X, hit_d = origin screen Y. WriteSprite only clobbers tmp0.
+DrawBossSpr:
+    php
+    sep #$20
+    .ACCU 8
+    rep #$10
+    .INDEX 16
+    phx
+    rep #$20
+    lda.l $7E0000+EN_OFF_Y,x
+    sta tmp1
+    sep #$20
+    lda #48
+    jsr WorldToScreenY
+    lda spr_y
+    sta hit_d
+    ldy #EN_BOSS
+    lda AttrTab.w,y
+    sta spr_attr
+    lda.l $7E0000+EN_OFF_VX+1,x
+    bpl DBSAttr
+    lda spr_attr
+    ora #$40.b
+    sta spr_attr
+DBSAttr:
+    stz spr_large
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
+    sec
+    sbc cam_x
+    sta tmp2                        ; origin screen X
+    sep #$20
+    stz tmp_row
+    stz tmp_row+1
+DBSRow:
+    stz tmp_col
+    stz tmp_col+1
+DBSCol:
+    lda spr_attr
+    and #$40.b
+    beq DBSColN
+    lda #2
+    sec
+    sbc tmp_col
+    bra DBSColX
+DBSColN:
+    lda tmp_col
+DBSColX:
+    sta WRMPYA
+    lda #16
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc tmp2
+    sta spr_x
+    lda #SPR_BOSS_TILE
+    sta spr_tile
+    sep #$20
+    lda.l $7E0000+EN_OFF_ANIM,x
+    sta WRMPYA
+    lda #6
     sta WRMPYB
     nop
     nop
@@ -562,21 +814,57 @@ DESH:
     adc spr_tile
     sta spr_tile
     sep #$20
-    lda PalTab.w,y
-    ora #OAM_ATTR_PRI2.b
-    sta spr_attr
-    lda.l $7E0009,x
-    bmi DESFlip
-    lda spr_attr
-    ora #$40.b
-    sta spr_attr
-DESFlip:
+    lda tmp_col
+    asl a
+    rep #$20
+    and #$00FF.w
+    clc
+    adc spr_tile
+    sta spr_tile
+    sep #$20
+    lda tmp_row
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a                           ; *32
+    rep #$20
+    and #$00FF.w
+    clc
+    adc spr_tile
+    sta spr_tile
+    sep #$20
+    lda tmp_row
+    sta WRMPYA
+    lda #16
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    lda hit_d
+    clc
+    adc RDMPYL
+    sta spr_y
     phx
     jsr WriteSprite
     plx
-DESNext:
-    inc obj_i
-    jmp DESLoop
+    sep #$20
+    inc tmp_col
+    lda tmp_col
+    cmp #3
+    bcs DBSNextRow
+    jmp DBSCol
+DBSNextRow:
+    inc tmp_row
+    lda tmp_row
+    cmp #3
+    bcs DBSDone
+    jmp DBSRow
+DBSDone:
+    plx
+    plp
+    rts
 
 DrawCoinsSpr:
     sep #$20
@@ -738,31 +1026,43 @@ HSLoop:
     rts
 HSDo:
     jsr EnemyPtr
-    lda.l $7E0000,x
+    lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
     beq HSNext
     jsr OverlapPlayer
     bcc HSNext
-    ; stomp if falling (vy < 0) and feet above enemy center
+    ; stomp if falling and feet above enemy center (Java)
     rep #$20
     lda pl_vy
     bpl HSHurt16
-    lda pl_y
-    cmp.l $7E0006,x
-    bcc HSHurt16
-    ; stomp
     sep #$20
-    lda.l $7E0002,x
-    dec a
-    sta.l $7E0002,x
-    bne HSBounce
-    lda.l $7E0000,x
-    and #$FE.b
-    sta.l $7E0000,x
+    lda.l $7E0000+EN_OFF_TYPE,x
     rep #$20
-    lda score_lo
+    and #$00FF.w
+    tay
+    sep #$20
+    lda HitH.w,y
+    lsr a
+    sta tmp0
+    stz tmp0+1
+    rep #$20
+    lda.l $7E0000+EN_OFF_Y,x
     clc
-    adc #200
+    adc tmp0
+    sta tmp0
+    lda pl_y
+    cmp tmp0
+    bcc HSHurt16
+    ; stomp: always score (Java awards every successful stomp)
+    sep #$20
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
+    asl a
+    tay
+    lda PtsTab.w,y
+    clc
+    adc score_lo
     sta score_lo
     sep #$20
     lda score_hi
@@ -770,6 +1070,13 @@ HSDo:
     sta score_hi
     lda #1
     sta hud_dirty
+    lda.l $7E0000+EN_OFF_HP,x
+    dec a
+    sta.l $7E0000+EN_OFF_HP,x
+    bne HSBounce
+    lda.l $7E0000+EN_OFF_FLAGS,x
+    and #$FE.b
+    sta.l $7E0000+EN_OFF_FLAGS,x
 HSBounce:
     rep #$20
     lda #BOUNCE_VEL
@@ -783,29 +1090,41 @@ HSNext:
     inc obj_i
     jmp HSLoop
 
-; X = enemy. Carry set if overlap
+; X = enemy. Carry set if overlap. Uses type hitbox (Java sizes).
 OverlapPlayer:
     php
+    sep #$20
+    lda.l $7E0000+EN_OFF_TYPE,x
     rep #$20
-    lda.l $7E0004,x
+    and #$00FF.w
+    tay
+    sep #$20
+    lda HitW.w,y
+    sta tmp0
+    stz tmp0+1
+    lda HitH.w,y
+    sta tmp2
+    stz tmp2+1
+    rep #$20
+    lda.l $7E0000+EN_OFF_X,x
     clc
-    adc #16
+    adc tmp0
     cmp pl_x
     bcc OPNo
     lda pl_x
     clc
     adc #PLAYER_W
-    cmp.l $7E0004,x
+    cmp.l $7E0000+EN_OFF_X,x
     bcc OPNo
-    lda.l $7E0006,x
+    lda.l $7E0000+EN_OFF_Y,x
     clc
-    adc #16
+    adc tmp2
     cmp pl_y
     bcc OPNo
     lda pl_y
     clc
     adc #PLAYER_H
-    cmp.l $7E0006,x
+    cmp.l $7E0000+EN_OFF_Y,x
     bcc OPNo
     plp
     sec

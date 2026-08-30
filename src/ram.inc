@@ -78,7 +78,7 @@
     blink           db
     debug_step      db
     tile_id         db
-    obj_i           db
+    obj_i           db              ; current enemy index (update/draw/stomp)
     col_tiles       dsb 14              ; one BG1 metatile column, prepared on main thread
 .ENDE
 

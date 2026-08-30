@@ -96,9 +96,31 @@ def build_stage(stage_index: int) -> dict:
         length = 3 + rnd.next_int(3)
         row = 4 + rnd.next_int(5)
         start = 8 + rnd.next_int(max(1, cols - 16))
-        for c in range(start, min(cols - 4, start + length)):
+        end = min(cols - 4, start + length)
+        # Max held jump is ~89px. Floor stand is y=32, so row 7+ (stand 128+)
+        # cannot be reached. Keep pit crossings at row 4 (48px hop).
+        if any(pit[c] for c in range(start, end)):
+            row = 4
+        for c in range(start, end):
             g[row][c] = PLATFORM
             coins.append((c * TILE, (row + 1) * TILE))
+    # Wide spiked pits with no stepping stone: 3-tile platform at row 4.
+    c = 0
+    while c < cols:
+        if pit[c] and g[0][c] == SPIKE:
+            s = c
+            while c < cols and pit[c]:
+                c += 1
+            e = c - 1
+            if e - s + 1 >= 4 and not any(
+                g[r][x] == PLATFORM for r in range(ROWS) for x in range(s, e + 1)
+            ):
+                mid = (s + e) // 2
+                for x in range(max(s, mid - 1), min(e, mid + 1) + 1):
+                    g[4][x] = PLATFORM
+                    coins.append((x * TILE, 5 * TILE))
+        else:
+            c += 1
 
     for c in range(6, cols - 6, 6):
         if not pit[c]:
@@ -429,15 +451,13 @@ class ObjSheet:
 
 
 def make_font_chr() -> tuple[bytes, dict[str, int]]:
-    """8x8 2bpp font. Index 0 = space. Covers the HUD/title alphabet."""
+    """8x8 2bpp font. 0 empty, 1 white glyph, 2 dark outline (CRT contrast)."""
     glyphs = (
         " !\"#$%&'()*+,-./0123456789:;<=>?@"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_."
     )
-    # Tiny built-in: render with a PIL default-like bitmap via ImageFont if possible.
     img = Image.new("P", (8 * 16, 8 * 6), 0)
-    img.putpalette([0, 0, 0, 255, 255, 255, 180, 180, 180, 80, 80, 80] + [0] * (768 - 12))
-    draw = ImageDraw.Draw(img)
+    img.putpalette([0, 0, 0, 255, 255, 255, 32, 32, 48, 80, 80, 80] + [0] * (768 - 12))
     font = None
     for candidate in (
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
@@ -450,7 +470,6 @@ def make_font_chr() -> tuple[bytes, dict[str, int]]:
             break
     mapping: dict[str, int] = {}
     mapping[" "] = 0
-    # tile 0 is empty
     tiles = bytearray(encode_2bpp_tile([0] * 64))
     index = 1
     for ch in glyphs:
@@ -459,13 +478,32 @@ def make_font_chr() -> tuple[bytes, dict[str, int]]:
         cell = Image.new("P", (8, 8), 0)
         cell.putpalette(img.getpalette())
         d = ImageDraw.Draw(cell)
+        # Inset 1px so the outline has room on the left/top of the tile.
         if font is not None:
-            d.text((0, -1), ch, fill=1, font=font)
+            d.text((1, 0), ch, fill=1, font=font)
         else:
-            d.text((0, 0), ch, fill=1)
+            d.text((1, 0), ch, fill=1)
         mapping[ch] = index
         px = cell.load()
-        idx = [1 if (px[x, y] & 3) else 0 for y in range(8) for x in range(8)]
+        ink = [[1 if (px[x, y] & 3) else 0 for x in range(8)] for y in range(8)]
+        idx: list[int] = []
+        for y in range(8):
+            for x in range(8):
+                if ink[y][x]:
+                    idx.append(1)
+                    continue
+                ring = False
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < 8 and 0 <= nx < 8 and ink[ny][nx]:
+                            ring = True
+                            break
+                    if ring:
+                        break
+                idx.append(2 if ring else 0)
         tiles += encode_2bpp_tile(idx)
         index += 1
     mapping["."] = mapping.get(".", index - 1)
@@ -589,23 +627,22 @@ def main() -> None:
         meta[f"SPR_{name}_FRAMES"] = len(frames)
         meta[f"SPR_{name}_W"] = tw
         meta[f"SPR_{name}_H"] = th
-        stride = 4 if tw == 32 else 2
-        meta[f"SPR_{name}_STRIDE"] = stride
+        meta[f"SPR_{name}_STRIDE"] = tw // 8
         tile = sheet.n_rows * 16
 
     d, pal, n, tw, th = take("sprites/daniel.png", 24, 32, 32, 32, player_idx)
     append_spr("PLAYER", d, tw, th, pal)
-    d, pal, n, tw, th = take("sprites/enemy_walker.png", 24, 24, 32, 32, [0, 1])
+    d, pal, n, tw, th = take("sprites/enemy_walker.png", 24, 24, 32, 32, None)
     append_spr("WALKER", d, tw, th, pal)
     d, pal, n, tw, th = take("sprites/enemy_flyer.png", 16, 16, 16, 16, None)
     append_spr("FLYER", d, tw, th, pal)
     d, pal, n, tw, th = take("sprites/coin.png", 16, 16, 16, 16, [0, 2])
     append_spr("COIN", d, tw, th, pal, new_band=False)
-    d, pal, n, tw, th = take("sprites/enemy_fast.png", 16, 16, 16, 16, [0, 2])
-    append_spr("FAST", d, tw, th, pal)
+    d, pal, n, tw, th = take("sprites/enemy_fast.png", 16, 16, 16, 16, None)
+    append_spr("FAST", d, tw, th, pal, new_band=False)
     d, pal, n, tw, th = take("sprites/enemy_tank.png", 24, 24, 32, 32, None)
     append_spr("TANK", d, tw, th, pal)
-    d, pal, n, tw, th = take("sprites/boss.png", 48, 48, 32, 32, None, scale=True)
+    d, pal, n, tw, th = take("sprites/boss.png", 48, 48, 48, 48, None)
     append_spr("BOSS", d, tw, th, pal)
     # 64×64 castle as four 32×32 quadrants (fits OBJ VRAM $6000–$7FFF).
     raw, pal, n, tw, th = take("sprites/castle.png", 80, 56, 64, 64, [0], scale=True)

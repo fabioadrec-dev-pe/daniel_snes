@@ -26,7 +26,7 @@ Reduzido:
 - Sem tela de apresentação (ruas), sem foto de ending, sem menu Sair
 - Câmera só horizontal
 - Checkpoints ainda não reativam o respawn (volta ao início da fase)
-- Sprites: player 32×32 (11 frames), boss/castelo 32×32
+- Sprites: player 32×32 (11 frames), walker 32×32 (4), flyer/fast 16×16 (2/4), tank 32×32 (2), boss 48×48 (2 frames, 9 OAM), castelo 64×64
 - Fundos em 16 cores (os PNG originais têm ~170–220)
 
 ## Compilar

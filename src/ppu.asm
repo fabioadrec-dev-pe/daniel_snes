@@ -60,6 +60,27 @@ InitPPU:
     jsr HideAllSprites
     rts
 
+; Main-thread VRAM must run in force blank with NMI off. Otherwise each VMDATA
+; write waits for vblank (~1/60s) and FillBG1's 2048-tile clear takes ~30s.
+PpuBlankOn:
+    php
+    sep #$20
+    stz NMITIMEN
+    lda #INIDISP_FORCEBLANK.b
+    sta INIDISP
+    plp
+    rts
+
+PpuBlankOff:
+    php
+    sep #$20
+    lda #INIDISP_FULLBRIGHT.b
+    sta INIDISP
+    lda #NMITIMEN_NMI_JOY.b
+    sta NMITIMEN
+    plp
+    rts
+
 ; Copy BG2 pal color 0 (CGRAM $10) into backdrop so 4bpp index 0 is not a hole.
 CopyBackdropFromBG2:
     sep #$20
@@ -83,14 +104,19 @@ LoadFont:
     sta dma_bank
     ldx #VRAM_BG3_TILES.w
     jsr DmaToVRAM
-    ; BG3 pal 1 (CGRAM $04-$07) so we do not clobber BG1 tileset colors 0-3.
+    ; BG3 2bpp pal 1 at CGRAM $04. Color 0 clear, 1 white, 2 dark outline.
+    ; Words 4–6 overlap BG1 pal 0 colors 4–6; 0–3 of the tileset stay intact.
     lda #$04.b
     sta CGADD
     stz CGDATA
     stz CGDATA
-    lda #$FF.b
+    lda #$FF.b                      ; color 1: white fill
     sta CGDATA
     lda #$7F.b
+    sta CGDATA
+    lda #$42.b                      ; color 2: dark navy outline (BGR555 $0C42)
+    sta CGDATA
+    lda #$0C.b
     sta CGDATA
     rts
 
@@ -192,21 +218,65 @@ DmaToWRAM:
     sta MDMAEN
     rts
 
-; dma_src is offset in bank 8, dma_len bytes -> $7E2000.
+; Same dispatch as CopyStageChrCPU. JMP (abs,X) is unreliable here across cores.
 CopyToMapWRAM:
     php
     sep #$20
     .ACCU 8
     rep #$10
     .INDEX 16
+    lda stage_index
+    beq CTFrom0
+    cmp #1
+    beq CTFrom1
+    cmp #2
+    beq CTFrom2
+    cmp #3
+    beq CTFrom3
     ldx #0
-CTLoop:
+CT4L:
+    lda.l Stage4,x
+    sta.l $7E2000,x
+    inx
+    cpx dma_len
+    beq CTDone
+    jmp CT4L
+CTFrom0:
+    ldx #0
+CT0L:
     lda.l Stage0,x
     sta.l $7E2000,x
     inx
     cpx dma_len
     beq CTDone
-    jmp CTLoop
+    jmp CT0L
+CTFrom1:
+    ldx #0
+CT1L:
+    lda.l Stage1,x
+    sta.l $7E2000,x
+    inx
+    cpx dma_len
+    beq CTDone
+    jmp CT1L
+CTFrom2:
+    ldx #0
+CT2L:
+    lda.l Stage2,x
+    sta.l $7E2000,x
+    inx
+    cpx dma_len
+    beq CTDone
+    jmp CT2L
+CTFrom3:
+    ldx #0
+CT3L:
+    lda.l Stage3,x
+    sta.l $7E2000,x
+    inx
+    cpx dma_len
+    beq CTDone
+    jmp CT3L
 CTDone:
     plp
     rts

@@ -149,7 +149,6 @@ LoadStageBlob:
     lda stage_index
     tax
     lda StageBank.w,x
-    ora #$80.b
     sta dma_bank
     jsr CopyToMapWRAM
     ; parse header
@@ -282,9 +281,11 @@ UpdatePlay:
     beq UPGo
     lda #STATE_PAUSE.b
     sta game_state
+    jsr PpuBlankOn
     lda #STR_PAUSA
     ldy #12
     jsr PrintStringRow
+    jsr PpuBlankOff
     rts
 UPGo:
     jsr TickTime
@@ -363,9 +364,11 @@ UpdatePause:
     and #BUTTON_START.w
     sep #$20
     beq UPz
+    jsr PpuBlankOn
     jsr ClearBG3
     jsr DrawHUD
     jsr DmaHUD
+    jsr PpuBlankOff
     lda #STATE_PLAY.b
     sta game_state
 UPz:
@@ -390,7 +393,10 @@ UpdateDying:
     lda #1
     sta hud_dirty
     jsr UpdateCamera
+    jsr PpuBlankOn
     jsr FillBG1FromCamera
+    stz nmi_col_need
+    jsr PpuBlankOff
     lda #STATE_PLAY.b
     sta game_state
     rts
