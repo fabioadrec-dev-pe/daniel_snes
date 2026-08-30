@@ -1,0 +1,11 @@
+build/*.o
+build/*.sfc
+build/*.smc
+build/*.sym
+build/*.lst
+build/link-*
+build/probe_*.png
+tools/bin/
+tools/wla-dx/
+*.obj
+.DS_Store
