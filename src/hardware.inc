@@ -159,6 +159,10 @@
 .DEFINE STATE_CLEAR         5
 .DEFINE STATE_OVER          6
 .DEFINE STATE_WIN           7
+.DEFINE STATE_STREETS       8
+
+.DEFINE TITLE_IDLE_FRAMES   300     ; ~5s on title before street crawl
+.DEFINE STREET_SCROLL_DIV   2       ; frames per pixel (~30 px/s)
 
 .DEFINE BOOT_FRAMES         90
 .DEFINE CLEAR_FRAMES        180

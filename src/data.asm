@@ -10,6 +10,7 @@ SharedPal:  .INCBIN "gen/shared_pal.bin"
 SpritePal:  .INCBIN "gen/sprite_pal.bin"
 SineTab:    .INCBIN "gen/sine.bin"
 Strings:    .INCBIN "gen/strings.bin"
+Streets:    .INCBIN "gen/streets.bin"
 .ENDS
 
 .BANK 2 SLOT 0

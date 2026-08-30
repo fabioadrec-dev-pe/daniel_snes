@@ -595,6 +595,8 @@ CSM3L:
 ApplyScroll:
     sep #$20
     lda game_state
+    cmp #STATE_STREETS.b
+    beq ASStreets
     cmp #STATE_PLAY.b
     bcc ASZero
     cmp #STATE_OVER.b
@@ -618,11 +620,25 @@ ApplyScroll:
     lda tmp0+1
     sta BG2HOFS
     rts
+ASStreets:
+    lda street_scroll
+    sta BG3VOFS
+    lda street_scroll+1
+    sta BG3VOFS
+    stz BG1HOFS
+    stz BG1HOFS
+    stz BG2HOFS
+    stz BG2HOFS
+    rts
 ASZero:
     stz BG1HOFS
     stz BG1HOFS
     stz BG2HOFS
     stz BG2HOFS
+    lda #$FF.b
+    sta BG3VOFS
+    lda #$03.b
+    sta BG3VOFS
     rts
 
 ; Read 14 map rows for nmi_col_mc into col_tiles. Main thread / Force Blank only.

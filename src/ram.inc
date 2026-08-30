@@ -80,6 +80,12 @@
     tile_id         db
     obj_i           db              ; current enemy index (update/draw/stomp)
     col_tiles       dsb 14              ; one BG1 metatile column, prepared on main thread
+    street_scroll   dw              ; BG3VOFS in pixels during STATE_STREETS
+    street_div      db              ; frame divider for crawl speed
+    street_next     dw              ; content row (8px) to paint
+    street_src      dw              ; offset in Streets, or $FFFF = blank
+    street_map_row  db              ; BG3 tile row 0-31
+    street_row_need db              ; NMI paints one BG3 row
 .ENDE
 
 .ENUM $0200

@@ -13,4 +13,5 @@
 .INCLUDE "objects.asm"
 .INCLUDE "hud.asm"
 .INCLUDE "game.asm"
+.INCLUDE "streets.asm"
 .INCLUDE "data.asm"

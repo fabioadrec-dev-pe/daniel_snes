@@ -45,6 +45,11 @@ EnterTitle:
     stz BG2HOFS
     lda #TM_TITLE.b
     sta TM
+    rep #$20
+    stz state_timer
+    stz street_scroll
+    sep #$20
+    stz street_row_need
     lda #INIDISP_FULLBRIGHT.b
     sta INIDISP
     lda #STATE_TITLE.b
@@ -55,20 +60,21 @@ EnterTitle:
 
 UpdateTitle:
     sep #$20
-    ; blink PRESS START by toggling BG3 row 20 empty every 32 frames
-    lda frame_counter
-    and #$20.b
-    beq UTShow
-    ; skip
-    bra UTStart
-UTShow:
-UTStart:
     rep #$20
     lda joy_pressed
     and #BUTTON_START.w
     sep #$20
-    beq UTDone
+    beq UTIdle
     jsr NewGame
+    rts
+UTIdle:
+    rep #$20
+    inc state_timer
+    lda state_timer
+    cmp #TITLE_IDLE_FRAMES.w
+    sep #$20
+    bcc UTDone
+    jsr EnterStreets
 UTDone:
     rts
 

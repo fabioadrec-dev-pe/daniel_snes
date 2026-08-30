@@ -510,13 +510,97 @@ def make_font_chr() -> tuple[bytes, dict[str, int]]:
     return bytes(tiles), mapping
 
 
+_FOLD_ASCII = str.maketrans(
+    "ÁÀÂÃÄáàâãäÉÈÊËéèêëÍÌÎÏíìîïÓÒÔÕÖóòôõöÚÙÛÜúùûüÇçÑñÝý",
+    "AAAAAaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuCcNnYy",
+)
+
+
+def fold_ascii(text: str) -> str:
+    return text.translate(_FOLD_ASCII)
+
+
 def encode_text_line(text: str, mapping: dict[str, int], width: int) -> list[int]:
-    ids = [mapping.get(ch, mapping.get(" ", 0)) for ch in text.upper()]
+    ids = [mapping.get(ch, mapping.get(" ", 0)) for ch in fold_ascii(text).upper()]
     if len(ids) > width:
         ids = ids[:width]
     pad = width - len(ids)
     left = pad // 2
     return [0] * left + ids + [0] * (width - left - len(ids))
+
+
+# Brasilia Teimosa street names from the Java PresentationScreen list.
+BRASILIA_STREETS = [
+    "Avenida Brasília Formosa",
+    "Rua Delfim",
+    "Rua Golfinho",
+    "Rua Gustavo Krause",
+    "Rua Medusa",
+    "Rua Vereador Romildo Gomes",
+    "Rua Badejo",
+    "Rua Roberto Magalhães",
+    "Rua Estrela do Mar",
+    "Rua Marcos Antônio de Oliveira Maciel",
+    "Rua Paru",
+    "Rua João Batista de Oliveira Figueiredo",
+    "Rua das Orquídeas",
+    "Rua Espardate",
+    "Rua Esmerindo de Oliveira",
+    "Rua Anequim",
+    "Rua Poraquê",
+    "Rua Serra",
+    "Rua Dragão do Mar",
+    "Rua Albacora",
+    "Rua Artur Bernardes",
+    "Rua Dagoberto Pires",
+    "Rua Afrânio",
+    "Rua França",
+    "Rua do Jaú",
+    "Rua Assunção",
+    "Rua das Angélicas",
+    "Rua Doutor Paes de Melo",
+    "Rua da Amizade",
+    "Rua Arabaiana",
+    "Rua João Marques dos Anjos",
+    "Rua Ricardo Câmara",
+    "Rua Brazópolis",
+    "Rua Porto Feliz",
+    "Rua Alagoinha",
+    "Rua Marechal Hermes",
+    "Rua Raimundo Vicente",
+    "Rua Japerica",
+    "Rua Salgado Filho",
+    "Rua Nanuque",
+    "Rua Quatá",
+    "Rua Manituba",
+    "Rua Investigador Eraldo Ferreira Viana",
+    "Rua Copaíba",
+    "Rua Nova Germano",
+    "Rua Pargo",
+    "Rua Km-1 da Barra",
+    "Rua Piraúna",
+    "Rua da Vitória",
+    "Rua Sobreiro",
+    "Rua Galboa",
+    "Rua Palombeta",
+]
+
+
+def pack_street_lines(mapping: dict[str, int]) -> tuple[bytes, int, int]:
+    """32-byte centered font rows: header, then the Java street list (one pass)."""
+    lines = [
+        "BRASILIA TEIMOSA",
+        "AS RUAS DO BAIRRO",
+        "",
+        *BRASILIA_STREETS,
+    ]
+    blob = bytearray()
+    for text in lines:
+        blob += bytes(encode_text_line(text, mapping, 32))
+    n = len(lines)
+    # 16px per line, then 224px to clear the last name off the top, plus one row.
+    scroll_end = n * 16 + 224 + 16
+    return bytes(blob), n, scroll_end
 
 
 def crop_dark_margins(im: Image.Image, thresh: int = 48) -> Image.Image:
@@ -758,6 +842,12 @@ def main() -> None:
     (out / "strings.bin").write_bytes(bytes(str_bin))
     for name, off in str_off.items():
         meta[name] = off
+
+    streets_bin, n_streets, scroll_end = pack_street_lines(mapping)
+    (out / "streets.bin").write_bytes(streets_bin)
+    meta["STREET_COUNT"] = n_streets
+    meta["STREET_SCROLL_END"] = scroll_end
+    print(f"streets: lines={n_streets} bytes={len(streets_bin)} scroll_end={scroll_end}")
 
     write_meta(out / "meta.inc", **meta)
     # Also dump a small C-like report

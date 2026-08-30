@@ -78,6 +78,11 @@ MLNotBoot:
     jsr UpdateTitle
     jmp MainLoop
 MLNotTitle:
+    cmp #STATE_STREETS.b
+    bne MLNotStreets
+    jsr UpdateStreets
+    jmp MainLoop
+MLNotStreets:
     cmp #STATE_PAUSE.b
     bne MLNotPause
     jsr UpdatePause
