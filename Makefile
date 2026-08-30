@@ -36,6 +36,7 @@ SRC := \
 	src/objects.asm \
 	src/hud.asm \
 	src/game.asm \
+	src/menu.asm \
 	src/streets.asm \
 	src/data.asm \
 	src/gen/meta.inc

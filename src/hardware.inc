@@ -184,6 +184,7 @@
 .DEFINE STATE_OVER          6
 .DEFINE STATE_WIN           7
 .DEFINE STATE_STREETS       8
+.DEFINE STATE_MENU          9
 
 .DEFINE TITLE_IDLE_FRAMES   300     ; ~5s on title before street crawl
 .DEFINE STREET_SCROLL_DIV   3       ; frames per map-pixel (Mode 7 floor)
@@ -212,6 +213,8 @@
 .DEFINE START_LIVES         3
 .DEFINE START_TIME          300
 .DEFINE TOTAL_STAGES        5
+.DEFINE MIN_LIVES           1
+.DEFINE MAX_LIVES           9
 
 .DEFINE EN_WALKER           0
 .DEFINE EN_FLYER            1

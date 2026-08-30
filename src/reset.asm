@@ -78,6 +78,11 @@ MLNotBoot:
     jsr UpdateTitle
     jmp MainLoop
 MLNotTitle:
+    cmp #STATE_MENU.b
+    bne MLNotMenu
+    jsr UpdateMenu
+    jmp MainLoop
+MLNotMenu:
     cmp #STATE_STREETS.b
     bne MLNotStreets
     jsr UpdateStreets

@@ -56,21 +56,20 @@ CB3:
     plp
     rts
 
-; A = string offset in Strings (0,32,64...), Y = BG3 row 0-31. Force Blank/NMI.
+; X.w = string offset in Strings, Y = BG3 row 0-31. Force Blank/NMI.
 PrintStringRow:
     php
-    sep #$30
+    sep #$20
     .ACCU 8
-    .INDEX 8
-    sta tmp0
-    stz tmp0+1
+    rep #$10
+    .INDEX 16
     sty tmp1
     stz tmp1+1
+    stx tmp0
     lda #VMAIN_INC_HIGH.b
     sta VMAIN
-    rep #$30
+    rep #$20
     .ACCU 16
-    .INDEX 16
     lda tmp1
     and #$001F.w
     asl a
@@ -93,6 +92,44 @@ PSRLoop:
     inx
     dey
     bne PSRLoop
+    plp
+    rts
+
+; A = tile, X = col 0-31, Y = row 0-31. Force Blank/NMI.
+PokeBG3:
+    php
+    sep #$30
+    .ACCU 8
+    .INDEX 8
+    sta tmp0
+    stx tmp1
+    stz tmp1+1
+    sty tmp2
+    stz tmp2+1
+    lda #VMAIN_INC_HIGH.b
+    sta VMAIN
+    rep #$30
+    .ACCU 16
+    .INDEX 16
+    lda tmp2
+    and #$001F.w
+    asl a
+    asl a
+    asl a
+    asl a
+    asl a
+    clc
+    adc tmp1
+    clc
+    adc #VRAM_BG3_MAP
+    tax
+    jsr SetVRAMAddress
+    sep #$20
+    .ACCU 8
+    lda tmp0
+    sta VMDATAL
+    lda #$24.b
+    sta VMDATAH
     plp
     rts
 

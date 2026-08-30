@@ -86,6 +86,12 @@
     street_src      dw              ; unused (kept for DP layout)
     street_map_row  db
     street_row_need db
+    menu_sel        db              ; highlighted option
+    menu_cheat      db              ; secret-code progress 0..6
+    menu_unlock     db              ; 1 = FASE/VIDAS visible
+    menu_stage      db              ; 1..TOTAL_STAGES
+    menu_lives      db              ; 1..9
+    menu_swallow    db              ; 1 = JUMP was the cheat step this frame
 .ENDE
 
 .ENUM $0200

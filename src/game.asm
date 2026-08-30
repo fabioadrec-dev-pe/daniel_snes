@@ -24,16 +24,18 @@ EnterTitle:
     jsr ClearBG3
     jsr HideAllSprites
     jsr DMAOAM
-    lda #STR_TITLE1
+    rep #$10
+    .INDEX 16
+    ldx #STR_TITLE1
     ldy #8
     jsr PrintStringRow
-    lda #STR_TITLE2
+    ldx #STR_TITLE2
     ldy #10
     jsr PrintStringRow
-    lda #STR_CREDIT
+    ldx #STR_CREDIT
     ldy #16
     jsr PrintStringRow
-    lda #STR_START
+    ldx #STR_START
     ldy #20
     jsr PrintStringRow
     rep #$20
@@ -66,7 +68,7 @@ UpdateTitle:
     and #BUTTON_START.w
     sep #$20
     beq UTIdle
-    jsr NewGame
+    jsr EnterMenu
     rts
 UTIdle:
     rep #$20
@@ -88,6 +90,14 @@ NewGame:
     stz score_lo+1
     stz score_hi
     stz stage_index
+    lda menu_unlock
+    beq NGGo
+    lda menu_stage
+    dec a
+    sta stage_index
+    lda menu_lives
+    sta lives
+NGGo:
     jsr EnterStage
     rts
 
@@ -290,7 +300,7 @@ UpdatePlay:
     lda #STATE_PAUSE.b
     sta game_state
     jsr PpuBlankOn
-    lda #STR_PAUSA
+    ldx #STR_PAUSA
     ldy #12
     jsr PrintStringRow
     jsr PpuBlankOff
@@ -441,10 +451,10 @@ EnterGameOver:
     sta INIDISP
     jsr LoadMenuBG
     jsr ClearBG3
-    lda #STR_OVER
+    ldx #STR_OVER
     ldy #12
     jsr PrintStringRow
-    lda #STR_START
+    ldx #STR_START
     ldy #16
     jsr PrintStringRow
     lda #TM_TITLE.b
@@ -464,10 +474,10 @@ EnterWin:
     sta INIDISP
     jsr LoadMenuBG
     jsr ClearBG3
-    lda #STR_WIN
+    ldx #STR_WIN
     ldy #12
     jsr PrintStringRow
-    lda #STR_START
+    ldx #STR_START
     ldy #16
     jsr PrintStringRow
     lda #TM_TITLE.b
@@ -486,7 +496,7 @@ UpdateEndScreen:
     and #BUTTON_START.w
     sep #$20
     beq UEDone
-    jsr EnterTitle
+    jsr EnterMenu
 UEDone:
     rts
 

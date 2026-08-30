@@ -843,7 +843,7 @@ def main() -> None:
         + "".join(
             f".DEFINE FONT_{'SPC' if ch == ' ' else (ch if ch.isalnum() else 'X' + str(ord(ch)))} {idx}\n"
             for ch, idx in mapping.items()
-            if ch.isalnum() or ch == " "
+            if ch.isalnum() or ch in " <>:/"
         )
     )
 
@@ -883,6 +883,12 @@ def main() -> None:
         "STR_PONTOS": "PONTOS",
         "STR_FASE": "FASE",
         "STR_TEMPO": "TEMPO",
+        "STR_NOVO": "NOVO JOGO",
+        "STR_SAIR": "SAIR",
+        "STR_MFASE": "FASE: 0",
+        "STR_MVIDAS": "VIDAS: 0",
+        "STR_HINTADJ": "ESQ/DIR AJUSTAR",
+        "STR_HINTGO": "START CONFIRMA",
     }
     str_bin = bytearray()
     str_off = {}
