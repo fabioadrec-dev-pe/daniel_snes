@@ -658,7 +658,10 @@ def main() -> None:
     for name, loop, pcm in waves:
         brr = encode_brr(pcm, loop)
         starts.append(addr)
-        loops.append(addr if loop else addr)
+        # Non-looping BRR samples must not advertise a valid loop target.
+        # The END flag is authoritative, but a zero loop pointer also keeps
+        # stricter S-DSP implementations from restarting one-shots.
+        loops.append(addr if loop else 0)
         brr_blob += brr
         addr += len(brr)
         print(f"inst {name}: {len(brr)} bytes loop={loop}")
@@ -673,7 +676,7 @@ def main() -> None:
             samples = [int(x * g) for x in samples]
         brr = encode_brr(samples, False)
         starts.append(addr)
-        loops.append(addr)
+        loops.append(0)
         brr_blob += brr
         addr += len(brr)
         print(f"sfx {name}: {len(brr)} bytes")

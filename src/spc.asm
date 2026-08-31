@@ -50,6 +50,13 @@
     song_hi     db
     playing     db
     sfx_rr      db
+    sfx_used    db
+    sfx_t6      db
+    sfx_t7      db
+    sfx_k6      db              ; KOFF hold ticks for voice 6
+    sfx_k7      db              ; KOFF hold ticks for voice 7
+    sfx_last    db              ; last accepted SFX id
+    sfx_gap     db              ; frames needed before same id can rearm
     tmp0        db
     tmp1        db
     tmp2        db
@@ -71,6 +78,10 @@ SpcStart:
     CLRP
     MOV     X, #$EF
     MOV     SP, X
+    ; The CPU waits for the exact kick value before continuing the IPL
+    ; upload handshake. Echo it before the DSP initialization work.
+    MOV     A, APUIO0
+    MOV     APUIO0, A
     MOV     A, #133             ; 8000/133 ≈ 60.15 Hz
     MOV     TIMER0, A
     MOV     A, #$01             ; IPL unmapped, timer0 on
@@ -81,6 +92,13 @@ SpcStart:
     MOV     APUIO1, #$00
     MOV     playing, #$00
     MOV     sfx_rr, #$00
+    MOV     sfx_used, #$00
+    MOV     sfx_t6, #$00
+    MOV     sfx_t7, #$00
+    MOV     sfx_k6, #$00
+    MOV     sfx_k7, #$00
+    MOV     sfx_last, #$FF
+    MOV     sfx_gap, #$00
 
 MainLoop:
     CALL    !CheckCmd
@@ -101,14 +119,21 @@ CheckCmd:
     MOV     cmd_arg, A
     MOV     A, cmd_id
     CMP     A, #CMD_LOAD
-    BEQ     DoLoad
+    BNE     CheckPlayCmd
+    JMP     !DoLoad
+CheckPlayCmd:
     MOV     APUIO0, A           ; echo play/sfx/stop
     CMP     A, #CMD_PLAY
-    BEQ     DoPlay
+    BNE     CheckSfxCmd
+    JMP     !DoPlay
+CheckSfxCmd:
     CMP     A, #CMD_SFX
-    BEQ     DoSfx
+    BNE     CheckStopCmd
+    JMP     !DoSfx
+CheckStopCmd:
     CMP     A, #CMD_STOP
-    BEQ     DoStop
+    BNE     CmdAck
+    JMP     !DoStop
 CmdAck:
     MOV     APUIO0, #$00
 CmdDone:
@@ -173,24 +198,38 @@ LoadDone:
 
 DoStop:
     MOV     playing, #$00
+    MOV     sfx_used, #$00
+    MOV     sfx_t6, #$00
+    MOV     sfx_t7, #$00
+    MOV     sfx_k6, #$00
+    MOV     sfx_k7, #$00
+    MOV     sfx_last, #$FF
+    MOV     sfx_gap, #$00
     MOV     A, #$FF
     MOV     Y, #$5C
     CALL    !DspW
-    BRA     CmdAck
+    JMP     !CmdAck
 
 DoPlay:
     CALL    !StartSong
-    BRA     CmdAck
+    JMP     !CmdAck
 
 DoSfx:
     CALL    !PlaySfx
-    BRA     CmdAck
+    JMP     !CmdAck
 
 StartSong:
     MOV     song_lo, #$00
     MOV     song_hi, #$80
     MOV     playing, #$01
-    MOV     A, #$3F             ; koff music voices
+    MOV     sfx_used, #$00
+    MOV     sfx_t6, #$00
+    MOV     sfx_t7, #$00
+    MOV     sfx_k6, #$00
+    MOV     sfx_k7, #$00
+    MOV     sfx_last, #$FF
+    MOV     sfx_gap, #$00
+    MOV     A, #$FF             ; koff music and SFX voices
     MOV     Y, #$5C
     CALL    !DspW
     MOV     ch, #$00
@@ -244,7 +283,96 @@ InitCh:
     RET
 
 ; Apply pending events whose wait has expired, then tick durations.
+TickSfx:
+    MOV     A, sfx_gap
+    BEQ     TickSfxGapDone
+    DEC     A
+    MOV     sfx_gap, A
+TickSfxGapDone:
+    ; KOFF is sampled by the DSP asynchronously. Hold each stop request for
+    ; four 60 Hz ticks so a busy DSP cannot lose the only KOFF write.
+    MOV     A, sfx_k6
+    BEQ     TickSfx6Run
+    DEC     A
+    MOV     sfx_k6, A
+    CALL    !StopSfx6
+    BRA     TickSfx7
+TickSfx6Run:
+    MOV     A, sfx_t6
+    BEQ     TickSfx6Idle
+    DEC     A
+    MOV     sfx_t6, A
+    BNE     TickSfx7
+    MOV     sfx_k6, #$04
+    CALL    !StopSfx6
+    BRA     TickSfx7
+TickSfx6Idle:
+    ; Keep an inactive SFX voice electrically silent even if a previous
+    ; KOFF was missed by the DSP.
+    CALL    !MuteSfx6
+TickSfx7:
+    MOV     A, sfx_k7
+    BEQ     TickSfx7Run
+    DEC     A
+    MOV     sfx_k7, A
+    CALL    !StopSfx7
+    RET
+TickSfx7Run:
+    MOV     A, sfx_t7
+    BEQ     TickSfx7Idle
+    DEC     A
+    MOV     sfx_t7, A
+    BNE     TickSfxDone
+    MOV     sfx_k7, #$04
+    CALL    !StopSfx7
+    BRA     TickSfxDone
+TickSfx7Idle:
+    CALL    !MuteSfx7
+TickSfxDone:
+    RET
+
+StopSfx6:
+    MOV     A, #$80
+    ; Replace the voice-7 bit with voice 6's bit.
+    LSR     A
+    MOV     Y, #$5C
+    CALL    !DspW
+    MOV     A, #$00
+    MOV     Y, #$60
+    CALL    !DspW
+    MOV     Y, #$61
+    CALL    !DspW
+    RET
+
+StopSfx7:
+    MOV     A, #$80
+    MOV     Y, #$5C
+    CALL    !DspW
+    MOV     A, #$00
+    MOV     Y, #$70
+    CALL    !DspW
+    MOV     Y, #$71
+    CALL    !DspW
+    RET
+
+MuteSfx6:
+    MOV     A, #$00
+    MOV     Y, #$60
+    CALL    !DspW
+    MOV     Y, #$61
+    CALL    !DspW
+    RET
+
+MuteSfx7:
+    MOV     A, #$00
+    MOV     Y, #$70
+    CALL    !DspW
+    MOV     Y, #$71
+    CALL    !DspW
+    RET
+
 TickMusic:
+    CALL    !TickSfx
     MOV     A, playing
     BEQ     TickDone
     MOV     kon_bits, #$00
@@ -538,33 +666,98 @@ KonStore:
     RET
 
 PlaySfx:
-    ; voice 6 or 7
+    ; A duplicated command or a collision that remains true must not turn
+    ; one event into an endless retrigger. The same id is rearmed only after
+    ; three ticks without another copy of that command.
+    MOV     A, cmd_arg
+    CMP     A, sfx_last
+    BNE     SfxNotRepeat
+    MOV     A, sfx_gap
+    BEQ     SfxNotRepeat
+    MOV     sfx_gap, #$03
+    RET
+SfxNotRepeat:
+    ; Select a free voice 6 or 7. Never retrigger a voice while its BRR
+    ; sample is active: that restart is what produces phase noise.
     MOV     A, sfx_rr
     EOR     A, #$01
     MOV     sfx_rr, A
     CLRC
     ADC     A, #$06
-    MOV     tmp3, A             ; voice
+    MOV     tmp3, A             ; preferred voice
+    MOV     tmp1, #$00          ; alternate-attempt flag
+SfxChooseVoice:
+    MOV     A, tmp3
     ASL     A
     ASL     A
     ASL     A
     ASL     A
     MOV     tmp2, A             ; v*16
+    MOV     A, tmp3
+    CMP     A, #$07
+    BEQ     SfxChoose7
+    MOV     A, #$40
+    BRA     SfxChooseMask
+SfxChoose7:
+    MOV     A, #$80
+SfxChooseMask:
+    MOV     tmp0, A             ; selected voice bit
+    MOV     A, sfx_used
+    AND     A, tmp0
+    BEQ     SfxVoiceFree
+    MOV     A, tmp3
+    CMP     A, #$07
+    BEQ     SfxCheckTimer7
+    MOV     A, sfx_t6
+    BRA     SfxCheckTimer
+SfxCheckTimer7:
+    MOV     A, sfx_t7
+SfxCheckTimer:
+    BNE     SfxVoiceBusy
+    MOV     A, tmp3
+    CMP     A, #$07
+    BEQ     SfxCheckKill7
+    MOV     A, sfx_k6
+    BRA     SfxCheckKill
+SfxCheckKill7:
+    MOV     A, sfx_k7
+SfxCheckKill:
+    BEQ     SfxVoiceFree        ; KOFF hold has finished
+SfxVoiceBusy:
+    MOV     A, tmp1
+    BEQ     SfxTryAlternate
+    JMP     !SfxDrop            ; both SFX voices are still active
+SfxTryAlternate:
+    MOV     tmp1, #$01
+    MOV     A, tmp3
+    EOR     A, #$01
+    MOV     tmp3, A
+    BRA     SfxChooseVoice
+SfxVoiceFree:
+    MOV     A, sfx_used
+    OR      A, tmp0
+    MOV     sfx_used, A
+    MOV     A, cmd_arg
+    MOV     sfx_last, A
+    MOV     sfx_gap, #$03
+    ; Duration in 60 Hz ticks for the 12 kHz one-shot samples.
+    MOV     Y, cmd_arg
+    MOV     A, !SfxFrames+Y
+    MOV     tmp1, A
+    MOV     A, tmp3
+    CMP     A, #$07
+    BEQ     SfxTimer7
+    MOV     A, tmp1
+    MOV     sfx_t6, A
+    BRA     SfxTimerDone
+SfxTimer7:
+    MOV     A, tmp1
+    MOV     sfx_t7, A
+SfxTimerDone:
     MOV     A, cmd_arg
     CLRC
     ADC     A, #INST_SFX0
     MOV     tmp1, A             ; srcn
-    MOV     A, tmp3
-    MOV     Y, #$5C
-    ; koff this voice only
-    MOV     A, #$40
-    MOV     Y, tmp3
-    CMP     Y, #$07
-    BNE     SfxKoff
-    MOV     A, #$80
-SfxKoff:
-    MOV     Y, #$5C
-    CALL    !DspW
     ; SRCN
     MOV     A, tmp2
     CLRC
@@ -616,8 +809,12 @@ SfxKoff:
 SfxKon7:
     MOV     A, #$80
 SfxKon:
+    MOV     tmp0, A
     MOV     Y, #$4C
+    MOV     A, tmp0
     CALL    !DspW
+    RET
+SfxDrop:
     RET
 
 DspInit:
@@ -654,7 +851,21 @@ DspInit:
 ; A = value, Y = DSP register
 DspW:
     MOV     DSPADDR, Y
+    ; The S-DSP port needs a short settle time between address and data.
+    ; Without it, consecutive KON/KOFF/volume writes can be dropped.
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
     MOV     DSPDATA, A
+    NOP
+    NOP
+    NOP
+    NOP
     RET
 
 ; Percussion / one-shot default pitches (14-bit), INST_KICK.. and extra.
@@ -662,6 +873,10 @@ PercPTab:
     .dw $0600, $0800, $0C00     ; kick snare hat
     .dw $0A00                   ; hit unused here
     .dw $0800, $0800, $0800, $0800, $0800, $0800, $0800, $0800, $0800, $0800
+
+; BRR lengths at pitch $0600, rounded up to 60 Hz ticks.
+SfxFrames:
+    .db 10, 10, 18, 14, 10, 33, 48, 4, 5, 24
 
 .ENDS
 
