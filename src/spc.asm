@@ -166,6 +166,9 @@ LoadB3:
     DEC     tmp1
     BRA     LoadByte
 LoadDone:
+    ; Start every newly uploaded song immediately, without waiting for a
+    ; later CPU input or PLAY handshake.
+    CALL    !StartSong
     JMP     !CmdAck
 
 DoStop:

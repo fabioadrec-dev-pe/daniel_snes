@@ -13,7 +13,8 @@ InitAudio:
     sta spc_song
     sta spc_loaded
     jsr SpcUploadDriver
-    ; Menu song in ARAM before the PRESS START screen (upload only, no PLAY).
+    ; Load and start the menu song before the first menu frame is shown.
+    ; The SPC driver starts it as soon as the upload completes.
     lda #SONG_MENU.b
     sta spc_song
     jsr SpcUploadSong

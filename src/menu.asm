@@ -32,8 +32,6 @@ EnterMenu:
     rep #$20
     stz state_timer
     sep #$20
-    lda #SONG_MENU.b
-    jsr SpcPlaySong
     lda #NMITIMEN_NMI_JOY.b
     sta NMITIMEN
     rts
