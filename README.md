@@ -1,10 +1,10 @@
 # Daniel do Bolo's Adventure — SNES
 
 Port LoROM NTSC de 512 KiB do jogo Java em
-`/run/media/fabio/Dados/Fabio/dan-java/DanielDoBolosAdventure/`.
+`https://github.com/fabioadrec-dev-pe/DanielDoBolosAdventure`.
 Sem SRAM. O port agora inclui música, efeitos sonoros, tela de apresentação e ending.
 
-**Rollback:** o template Pong está intacto em `/home/fabio/snes_game_pong_backup`.
+**Rollback:** o template Pong está intacto em `https://github.com/fabioad/pong_snes_template`.
 
 Assembler: [WLA-DX](https://github.com/vhelin/wla-dx). Depuração: [bsnes-plus](https://github.com/devinacker/bsnes-plus).
 
