@@ -493,7 +493,8 @@ EnterGameOver:
     sta TM
     lda #STATE_OVER.b
     sta game_state
-    lda #SONG_GAMEOVER.b
+    ; GAME OVER uses the title/NOVO JOGO theme until a stage is opened.
+    lda #SONG_MENU.b
     jsr SpcPlaySong
     lda #SFX_GAMEOVER.b
     jsr SpcPlaySfx

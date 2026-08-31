@@ -7,9 +7,13 @@
 
 EnterEnding:
     sep #$20
-    lda #SONG_VICTORY.b
-    jsr SpcPlaySong
+    stz NMITIMEN
     stz end_screen
+    ; Start the title/NOVO JOGO theme before the ending bitmap is built.
+    ; Upload directly: the SPC driver starts it as soon as the transfer ends.
+    lda #SONG_MENU.b
+    sta spc_song
+    jsr SpcUploadSong
     jmp EndStartScreen
 
 EndStartScreen:
