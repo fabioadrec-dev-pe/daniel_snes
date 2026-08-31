@@ -377,6 +377,116 @@ EnemyFlipVx:
     plp
     rts
 
+; Carry set if tile_px,tile_py is walkable floor (not platform). Preserves X.
+EnemyProbeFloor:
+    php
+    phx
+    jsr GetTile
+    sep #$20
+    lda tile_id
+    cmp #TILE_PLATFORM
+    beq EPfNo
+    jsr IsSolid
+    beq EPfNo
+    plx
+    plp
+    sec
+    rts
+EPfNo:
+    plx
+    plp
+    clc
+    rts
+
+; Turn at a ledge when the trailing foot is on floor but the leading foot is not.
+; X = enemy ptr.
+EnemyCheckLedge:
+    php
+    sep #$20
+    .ACCU 8
+    rep #$10
+    .INDEX 16
+    rep #$20
+    .ACCU 16
+    lda.l $7E0000+EN_OFF_VX,x
+    beq ECLDone
+    lda.l $7E0000+EN_OFF_TYPE,x
+    and #$00FF.w
+    tay
+    sep #$20
+    lda HitW.w,y
+    sta tmp0
+    stz tmp0+1
+    rep #$20
+    lda.l $7E0000+EN_OFF_Y,x
+    dec a
+    sta tile_py
+    lda.l $7E0000+EN_OFF_VX+1,x
+    bmi ECLLeft
+    lda.l $7E0000+EN_OFF_X,x
+    sta tile_px
+    jsr EnemyProbeFloor
+    bcc ECLDone
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc tmp0
+    inc a
+    sta tile_px
+    bra ECLAhead
+ECLLeft:
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc tmp0
+    dec a
+    sta tile_px
+    jsr EnemyProbeFloor
+    bcc ECLDone
+    lda.l $7E0000+EN_OFF_X,x
+    dec a
+    sta tile_px
+ECLAhead:
+    jsr EnemyProbeFloor
+    bcc ECLFlip
+ECLDone:
+    plp
+    rts
+ECLFlip:
+    jsr EnemyFlipVx
+    jmp ECLDone
+
+; Carry set if either foot (left/right hitbox edge) is on floor. Preserves X.
+EnemyAnyFootFloor:
+    php
+    sep #$20
+    lda.l $7E0000+EN_OFF_TYPE,x
+    rep #$20
+    and #$00FF.w
+    tay
+    sep #$20
+    lda HitW.w,y
+    sta tmp0
+    stz tmp0+1
+    rep #$20
+    lda.l $7E0000+EN_OFF_Y,x
+    dec a
+    sta tile_py
+    lda.l $7E0000+EN_OFF_X,x
+    sta tile_px
+    jsr EnemyProbeFloor
+    bcc EAFRight
+    plp
+    sec
+    rts
+EAFRight:
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc tmp0
+    dec a
+    sta tile_px
+    jsr EnemyProbeFloor
+    plp
+    rts
+
 EnemyPatrol:
     ; gravity + 8.8 move + turn on wall / grounded ledge. X = ptr
     php
@@ -414,10 +524,11 @@ EPNoBoss:
     sec
     sbc #GRAVITY_F.w
     sta.l $7E0000+EN_OFF_VY,x
+    jsr EnemyCheckLedge
     jsr EnemyAddVelX
+    jsr EnemyCheckLedge
     jsr EnemyAddVelY
-    ; feet: center-x, y-1. While rising, do not treat a platform we jump
-    ; into as a floor — that snapped the 48px boss up onto every ledge.
+    ; Floor snap from foot probes (not center-x — that let enemies hover over pits).
     sep #$20
     lda.l $7E0000+EN_OFF_TYPE,x
     rep #$20
@@ -425,31 +536,36 @@ EPNoBoss:
     tay
     sep #$20
     lda HitW.w,y
-    lsr a
     sta tmp0
     stz tmp0+1
-    rep #$20
-    lda.l $7E0000+EN_OFF_X,x
-    clc
-    adc tmp0
-    sta tile_px
     lda.l $7E0000+EN_OFF_VY,x
     beq EPFloor
     bmi EPFloor
     jmp EPAir
 EPFloor:
+    jsr EnemyAnyFootFloor
+    bcs EPFHasFloor
+    jmp EPAir
+EPFHasFloor:
+    rep #$20
     lda.l $7E0000+EN_OFF_Y,x
     dec a
     sta tile_py
-    phx
-    jsr GetTile
-    jsr IsSolid
-    plx
-    beq EPAir
-    sep #$20
-    lda tile_id
-    cmp #TILE_PLATFORM
-    beq EPAir
+    lda.l $7E0000+EN_OFF_X,x
+    sta tile_px
+    jsr EnemyProbeFloor
+    bcc EPTryRight
+    bra EPSnapFromProbe
+EPTryRight:
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc tmp0
+    dec a
+    sta tile_px
+    jsr EnemyProbeFloor
+    bcs EPSnapFromProbe
+    jmp EPAir
+EPSnapFromProbe:
     lda.l $7E0000+EN_OFF_TYPE,x
     cmp #EN_BOSS
     bne EPSnap
@@ -508,9 +624,16 @@ EPAir:
     lda.l $7E0000+EN_OFF_FLAGS,x
     and #$FB.b
     sta.l $7E0000+EN_OFF_FLAGS,x
+    jsr EnemyAnyFootFloor
+    bcc EPHoleTurn
+    bra EPTurn
+EPHoleTurn:
+    lda.l $7E0000+EN_OFF_VX,x
+    ora.l $7E0000+EN_OFF_VX+1,x
+    beq EPTurn
+    jsr EnemyFlipVx
 EPTurn:
-    ; Ahead tile at the feet. Skip a mid-body wall probe: the 48px boss
-    ; treated floating platforms as walls and spun in place.
+    ; World bounds (ledge handled before move in EnemyCheckLedge).
     sep #$20
     lda.l $7E0000+EN_OFF_TYPE,x
     rep #$20
@@ -520,35 +643,6 @@ EPTurn:
     lda HitW.w,y
     sta tmp0
     stz tmp0+1
-    lda.l $7E0000+EN_OFF_VX+1,x
-    bmi EPLeft
-    rep #$20
-    lda.l $7E0000+EN_OFF_X,x
-    clc
-    adc tmp0
-    sta tile_px
-    bra EPLedge
-EPLeft:
-    rep #$20
-    lda.l $7E0000+EN_OFF_X,x
-    dec a
-    sta tile_px
-EPLedge:
-    sep #$20
-    lda.l $7E0000+EN_OFF_FLAGS,x
-    and #EF_GROUND.b
-    beq EPEdge
-    rep #$20
-    lda.l $7E0000+EN_OFF_Y,x
-    dec a
-    sta tile_py
-    phx
-    jsr GetTile
-    jsr IsSolid
-    plx
-    bne EPEdge
-    jsr EnemyFlipVx
-EPEdge:
     rep #$20
     lda.l $7E0000+EN_OFF_X,x
     bpl EPNotL
