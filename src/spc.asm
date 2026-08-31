@@ -28,6 +28,7 @@
 .DEFINE OP_REST     $80
 .DEFINE OP_INST     $81
 .DEFINE OP_VOL      $82
+.DEFINE OP_PAN      $83
 .DEFINE OP_LOOP     $FE
 
 .DEFINE INST_KICK   9
@@ -38,6 +39,7 @@
     ch_dur      ds 6
     ch_vol      ds 6
     ch_inst     ds 6
+    ch_pan      ds 6              ; 0=hard left, 1=left, 2=center, 3=right
     ch_op       ds 6
     ch_arg      ds 6
     ch_plo      ds 6
@@ -196,6 +198,8 @@ InitCh:
     MOV     A, #$00
     MOV     ch_dur+X, A
     MOV     ch_inst+X, A
+    MOV     A, #$02
+    MOV     ch_pan+X, A
     ; track offset = word at song+2+ch*2
     MOV     A, ch
     ASL     A
@@ -307,6 +311,8 @@ ApplyLoop:
     BEQ     DoInst
     CMP     A, #OP_VOL
     BEQ     DoVol
+    CMP     A, #OP_PAN
+    BEQ     DoPan
     CMP     A, #OP_REST
     BEQ     DoRest
     ; note 0-127
@@ -325,6 +331,12 @@ DoInst:
 DoVol:
     MOV     A, ch_arg+X
     MOV     ch_vol+X, A
+    CALL    !FetchCh
+    MOV     X, ch
+    BRA     ApplyLoop
+DoPan:
+    MOV     A, ch_arg+X
+    MOV     ch_pan+X, A
     CALL    !FetchCh
     MOV     X, ch
     BRA     ApplyLoop
@@ -463,11 +475,18 @@ WritePitch:
     MOV     Y, A
     MOV     A, tmp1
     CALL    !DspW
-    ; volume L/R
+    ; volume L/R.  The Java MIDI pans the accompaniment away from the
+    ; center; retain a gentle version of that separation on the SNES.
     MOV     X, ch
     MOV     A, ch_vol+X
     LSR     A                   ; 0-63-ish
     MOV     tmp0, A
+    MOV     A, ch_pan+X
+    CMP     A, #$01
+    BEQ     PanLeft
+    CMP     A, #$03
+    BEQ     PanRight
+PanCenter:
     MOV     A, tmp2
     MOV     Y, A                ; VOLL
     MOV     A, tmp0
@@ -477,6 +496,31 @@ WritePitch:
     MOV     Y, A                ; VOLR
     MOV     A, tmp0
     CALL    !DspW
+    BRA     PanDone
+PanLeft:
+    MOV     A, tmp2
+    MOV     Y, A                ; VOLL
+    MOV     A, tmp0
+    CALL    !DspW
+    MOV     A, tmp2
+    INC     A
+    MOV     Y, A                ; VOLR
+    MOV     A, tmp0
+    LSR     A
+    CALL    !DspW
+    BRA     PanDone
+PanRight:
+    MOV     A, tmp2
+    MOV     Y, A                ; VOLL
+    MOV     A, tmp0
+    LSR     A
+    CALL    !DspW
+    MOV     A, tmp2
+    INC     A
+    MOV     Y, A                ; VOLR
+    MOV     A, tmp0
+    CALL    !DspW
+PanDone:
     ; KON bit
     MOV     A, #$01
     MOV     Y, ch
@@ -591,7 +635,7 @@ DspInit:
     MOV     Y, #$5D
     MOV     A, #$0F             ; DIR page $0F00
     CALL    !DspW
-    MOV     A, #$60
+    MOV     A, #$50             ; lower master music level; leave headroom
     MOV     Y, #$0C             ; mvol L
     CALL    !DspW
     MOV     Y, #$1C

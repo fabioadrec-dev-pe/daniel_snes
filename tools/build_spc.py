@@ -70,10 +70,16 @@ OP_NOTE = 0x00  # 0x00-0x7F = MIDI note, next byte duration
 OP_REST = 0x80
 OP_INST = 0x81
 OP_VOL = 0x82
+OP_PAN = 0x83
 OP_LOOP = 0xFE
 OP_END = 0xFF
 
 BASS_PROGRAMS = {35, 37, 39}
+
+# The Java stage MIDI has more parts than the six SPC700 music voices.  Keep
+# the authored musical roles instead of selecting only by note count: drums,
+# bass, lead, two harmony parts and the guitar arpeggio.
+STAGE_CHANNELS = (9, 1, 3, 2, 5, 8)
 
 
 def read_vlq(data: bytes, i: int) -> tuple[int, int]:
@@ -153,8 +159,11 @@ def parse_midi(path: Path) -> dict:
                         events.append((tick, ch, "off", d1, 0))
                 elif kind == 0x80:
                     events.append((tick, ch, "off", d1, 0))
-                elif kind == 0xB0 and d1 == 7:
-                    events.append((tick, ch, "vol", d2, 0))
+                elif kind == 0xB0:
+                    if d1 == 7:
+                        events.append((tick, ch, "vol", d2, 0))
+                    elif d1 == 10:
+                        events.append((tick, ch, "pan", d2, 0))
     if not tempos:
         tempos.append((0, 500000))
     tempos.sort()
@@ -179,6 +188,11 @@ def gm_inst(prog: int, ch: int) -> int:
     if ch == 9:
         return INST_KICK
     return GM_TO_INST.get(prog, INST_PIANO)
+
+
+def is_drum_channel(parsed: dict, ch: int) -> bool:
+    """MIDI channel 10 (zero-based 9) is GM percussion."""
+    return ch == 9
 
 
 def drum_inst(note: int) -> int:
@@ -225,6 +239,8 @@ def mono_events(ch_events: list, bass: bool) -> list[tuple[int, str, int, int, i
         elif kind == "vol":
             vol = a
             out.append((frame, "vol", vol, 0, 0))
+        elif kind == "pan":
+            out.append((frame, "pan", a, 0, 0))
         elif kind == "on":
             sounding = [nv for nv in sounding if nv[0] != a]
             sounding.append((a, b))
@@ -246,6 +262,8 @@ def drum_events(ch_events: list) -> list[tuple[int, str, int, int, int]]:
             out.append((frame + 8, "off", 60, 0, 0))
         elif kind == "vol":
             out.append((frame, "vol", a, 0, 0))
+        elif kind == "pan":
+            out.append((frame, "pan", a, 0, 0))
     out.sort(key=lambda e: e[0])
     return out
 
@@ -256,6 +274,7 @@ def emit_track(evs: list[tuple[int, str, int, int, int]], is_drum: bool) -> byte
     t = 0
     last_inst = -1
     last_vol = -1
+    last_pan = -1
     pending: tuple[int, int, int] | None = None  # start, note, vel
 
     last_end = 0
@@ -289,7 +308,14 @@ def emit_track(evs: list[tuple[int, str, int, int, int]], is_drum: bool) -> byte
                 emit(frame, OP_INST, a)
                 last_inst = a
         elif kind == "vol":
-            emit(frame, OP_VOL, max(1, min(127, a)))
+            if a != last_vol:
+                emit(frame, OP_VOL, max(1, min(127, a)))
+                last_vol = a
+        elif kind == "pan":
+            pan = 1 if a <= 48 else 3 if a >= 80 else 2
+            if pan != last_pan:
+                emit(frame, OP_PAN, pan)
+                last_pan = pan
         elif kind == "on":
             if pending:
                 flush(frame)
@@ -321,7 +347,7 @@ def pick_channels(parsed: dict, n: int = 6) -> list[int]:
     progs = parsed["programs"]
     chosen: list[int] = []
     # Always take drums + a bass if present.
-    if 9 in counts:
+    if 9 in counts and is_drum_channel(parsed, 9):
         chosen.append(9)
     bass_ch = None
     for ch, p in progs.items():
@@ -336,6 +362,62 @@ def pick_channels(parsed: dict, n: int = 6) -> list[int]:
             break
         chosen.append(c)
     return chosen[:n]
+
+
+def compile_stage_midi(path: Path, voice_limit: int = 6) -> bytes:
+    """Compile the Java stage MIDI with the six most musical source parts."""
+    parsed = parse_midi(path)
+    channels = [ch for ch in STAGE_CHANNELS if ch in {
+        ev[1] for ev in parsed["events"] if ev[2] == "on"
+    }][:voice_limit]
+    by_ch: dict[int, list] = defaultdict(list)
+    for tick, ch, kind, a, b in parsed["events"]:
+        frame = midi_tick_to_frame(tick, parsed["tempos"], parsed["div"])
+        by_ch[ch].append((frame, kind, a, b))
+
+    encoded: list[bytes] = []
+    # Keep the relative balance from the Java MIDI while leaving headroom for
+    # the long bass/lead notes.  The dense guitar and chord ostinatos are the
+    # main source of the muddy mix on six SNES voices.
+    mix_gain = {9: 48, 1: 100, 3: 100, 2: 72, 5: 64, 8: 48}
+
+    def mix_events(evs: list[tuple[int, str, int, int, int]], ch: int):
+        gain = mix_gain.get(ch, 80)
+        out = [(0, "vol", (100 * gain + 63) // 127, 0, 0)]
+        pan_seen = False
+        for frame, kind, a, b, c in evs:
+            if kind == "vol":
+                a = (a * gain + 63) // 127
+            elif kind == "pan":
+                # The MIDI contains repeated pan sweeps (especially on the
+                # accordion part).  One initial position preserves separation
+                # without spending the SPC song budget on controller noise.
+                if pan_seen:
+                    continue
+                pan_seen = True
+            out.append((frame, kind, a, b, c))
+        return out
+
+    for ch in channels:
+        raw = by_ch[ch]
+        if is_drum_channel(parsed, ch):
+            evs = mix_events(drum_events(raw), ch)
+            encoded.append(emit_track(evs, True))
+        else:
+            prog = parsed["programs"].get(ch, 0)
+            evs = mono_events(raw, bass=prog in BASS_PROGRAMS)
+            seeded = [(0, "inst", gm_inst(prog, ch), 0, 0)] + mix_events(evs, ch)
+            encoded.append(emit_track(seeded, False))
+    while len(encoded) < 6:
+        encoded.append(bytes((254, OP_REST, 254, 0, OP_LOOP, 0)))
+
+    header = bytearray(16)
+    header[0] = 6
+    off = 16
+    for i, track in enumerate(encoded):
+        struct.pack_into("<H", header, 2 + i * 2, off)
+        off += len(track)
+    return bytes(header) + b"".join(encoded)
 
 
 def compile_midi(path: Path, voice_limit: int = 6) -> bytes:
@@ -432,6 +514,18 @@ def wave_cycle(kind: str, n: int = 32, amp: int = 18000) -> list[int]:
             s = 2 * p - 1
         elif kind == "square":
             s = 1.0 if p < 0.5 else -1.0
+        elif kind == "guitar":
+            # A raw sawtooth aliases badly when the 32-sample BRR loop is
+            # transposed.  Keep the bright attack but use only low harmonics.
+            s = (0.72 * math.sin(2 * math.pi * p)
+                 + 0.22 * math.sin(4 * math.pi * p)
+                 + 0.08 * math.sin(6 * math.pi * p))
+        elif kind == "strings":
+            # Softer than a sawtooth, leaving sustained choir/string notes
+            # present without filling the mix with high-frequency fizz.
+            s = (0.78 * math.sin(2 * math.pi * p)
+                 + 0.17 * math.sin(4 * math.pi * p)
+                 + 0.05 * math.sin(6 * math.pi * p))
         elif kind == "piano":
             s = 0.7 * math.sin(2 * math.pi * p) + 0.25 * math.sin(4 * math.pi * p)
         elif kind == "pad":
@@ -545,9 +639,9 @@ def main() -> None:
     waves = [
         ("piano", True, wave_cycle("piano")),
         ("bass", True, wave_cycle("tri", amp=20000)),
-        ("guitar", True, wave_cycle("saw", amp=14000)),
+        ("guitar", True, wave_cycle("guitar", amp=14000)),
         ("square", True, wave_cycle("square", amp=12000)),
-        ("strings", True, wave_cycle("saw", amp=10000)),
+        ("strings", True, wave_cycle("strings", amp=10000)),
         ("flute", True, wave_cycle("sine", amp=16000)),
         ("vibes", True, wave_cycle("sine", amp=17000)),
         ("pad", True, wave_cycle("pad", amp=12000)),
@@ -594,7 +688,7 @@ def main() -> None:
     java: Path = args.java
     songs = {
         "song_menu.bin": compile_midi(java / "menu_lady.mid", voice_limit=4),
-        "song_stage.bin": compile_midi(java / "music.mid", voice_limit=4),
+        "song_stage.bin": compile_stage_midi(java / "music.mid"),
         "song_boss.bin": compile_midi(java / "boss.mid", voice_limit=4),
         "song_victory.bin": compile_melody(
             [(72, 9), (76, 9), (79, 9), (84, 18), (79, 9), (84, 30)] * 2,
@@ -607,6 +701,8 @@ def main() -> None:
         ),
     }
     for name, blob in songs.items():
+        if len(blob) > 0x8000:
+            raise SystemExit(f"{name} exceeds the 32 KiB SPC song upload window: {len(blob)} bytes")
         (out / name).write_bytes(blob)
         print(f"{name}: {len(blob)} bytes")
     (out / "spc_songmeta.inc").write_text(
