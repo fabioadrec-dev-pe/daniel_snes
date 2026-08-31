@@ -195,7 +195,7 @@ UpdateStreets:
     lda joy_pressed
     ora joy2_pressed
     beq USNoBtn
-    jsr EnterTitle
+    jsr EnterMenu
     rts
 USNoBtn:
     sep #$20
@@ -215,7 +215,7 @@ USNoBtn:
     lda street_scroll
     cmp #STREET_SCROLL_END.w
     bcc USDone16
-    jsr EnterTitle
+    jsr EnterMenu
     rts
 USDone16:
     sep #$20

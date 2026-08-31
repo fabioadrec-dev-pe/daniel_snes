@@ -7,6 +7,8 @@
 
 EnterEnding:
     sep #$20
+    lda #SONG_VICTORY.b
+    jsr SpcPlaySong
     stz end_screen
     jmp EndStartScreen
 

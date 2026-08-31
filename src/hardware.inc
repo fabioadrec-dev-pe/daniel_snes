@@ -98,6 +98,29 @@
 .DEFINE JOYSER0     $4016
 .DEFINE JOYSER1     $4017
 
+.DEFINE APUIO0              $2140
+.DEFINE APUIO1              $2141
+.DEFINE APUIO2              $2142
+.DEFINE APUIO3              $2143
+.DEFINE SPC_ENTRY           $0200
+
+.DEFINE SONG_MENU           0
+.DEFINE SONG_STAGE          1
+.DEFINE SONG_BOSS           2
+.DEFINE SONG_VICTORY        3
+.DEFINE SONG_GAMEOVER       4
+
+.DEFINE SFX_JUMP            0
+.DEFINE SFX_COIN            1
+.DEFINE SFX_HURT            2
+.DEFINE SFX_DEFEAT          3
+.DEFINE SFX_BREAK           4
+.DEFINE SFX_VICTORY         5
+.DEFINE SFX_GAMEOVER        6
+.DEFINE SFX_MENU            7
+.DEFINE SFX_SELECT          8
+.DEFINE SFX_BOSS            9
+
 .DEFINE INIDISP_FORCEBLANK  $80
 .DEFINE INIDISP_FULLBRIGHT  $0F
 .DEFINE NMITIMEN_NMI_JOY    $81
@@ -194,7 +217,7 @@
 .DEFINE END_HOLD_PHOTO      360
 .DEFINE END_SCORE_DIGITS    5
 
-.DEFINE TITLE_IDLE_FRAMES   300     ; ~5s on title before street crawl
+.DEFINE MENU_IDLE_FRAMES    300     ; ~5s on menu before street crawl
 .DEFINE STREET_SCROLL_DIV   3       ; frames per map-pixel (Mode 7 floor)
 
 .DEFINE BOOT_FRAMES         90

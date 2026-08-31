@@ -100,6 +100,9 @@
     end_row_need    db
     end_line        dw              ; text line to paint in NMI
     end_last        dw              ; last bottom line painted
+    spc_song        db
+    spc_sfx         db
+    spc_loaded      db              ; song id currently in ARAM $8000, $FF = none
 .ENDE
 
 .ENUM $0200

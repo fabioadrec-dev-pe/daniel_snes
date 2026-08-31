@@ -8,77 +8,9 @@ UpdateBoot:
     dec boot_timer
     bne UBDone
     sep #$20
-    jsr EnterTitle
+    jsr EnterMenu
 UBDone:
     sep #$20
-    rts
-
-EnterTitle:
-    sep #$20
-    stz NMITIMEN
-    lda #INIDISP_FORCEBLANK.b
-    sta INIDISP
-    jsr RestoreMode1
-    jsr LoadSharedGraphics
-    jsr LoadMenuBG
-    jsr ClearBG3
-    jsr HideAllSprites
-    jsr DMAOAM
-    rep #$10
-    .INDEX 16
-    ldx #STR_TITLE1
-    ldy #8
-    jsr PrintStringRow
-    ldx #STR_TITLE2
-    ldy #10
-    jsr PrintStringRow
-    ldx #STR_CREDIT
-    ldy #16
-    jsr PrintStringRow
-    ldx #STR_START
-    ldy #20
-    jsr PrintStringRow
-    rep #$20
-    stz cam_x
-    sep #$20
-    stz nmi_col_need
-    stz BG1HOFS
-    stz BG1HOFS
-    stz BG2HOFS
-    stz BG2HOFS
-    lda #TM_TITLE.b
-    sta TM
-    rep #$20
-    stz state_timer
-    stz street_scroll
-    sep #$20
-    stz street_row_need
-    lda #INIDISP_FULLBRIGHT.b
-    sta INIDISP
-    lda #STATE_TITLE.b
-    sta game_state
-    lda #NMITIMEN_NMI_JOY.b
-    sta NMITIMEN
-    rts
-
-UpdateTitle:
-    sep #$20
-    rep #$20
-    lda joy_pressed
-    and #BUTTON_START.w
-    sep #$20
-    beq UTIdle
-    jsr EnterMenu
-    rts
-UTIdle:
-    rep #$20
-    inc state_timer
-    lda state_timer
-    cmp #TITLE_IDLE_FRAMES.w
-    sep #$20
-    bcc UTDone
-    jsr EnterStreets
-UTDone:
     rts
 
 NewGame:
@@ -108,6 +40,17 @@ EnterStage:
     sta INIDISP
     jsr RestoreMode1
     jsr LoadStageBlob
+    lda boss_flag
+    beq ESStageBgm
+    lda #SONG_BOSS.b
+    jsr SpcPlaySong
+    lda #SFX_BOSS.b
+    jsr SpcPlaySfx
+    bra ESLoadGfx
+ESStageBgm:
+    lda #SONG_STAGE.b
+    jsr SpcPlaySong
+ESLoadGfx:
     jsr LoadSharedGraphics
     jsr LoadStageBG
     jsr InitPlayerFromStage
@@ -299,6 +242,8 @@ UpdatePlay:
     beq UPGo
     lda #STATE_PAUSE.b
     sta game_state
+    lda #SFX_MENU.b
+    jsr SpcPlaySfx
     jsr PpuBlankOn
     ldx #STR_PAUSA
     ldy #12
@@ -368,6 +313,8 @@ CheckGoal:
     sta pl_flags
     lda #STATE_CLEAR.b
     sta game_state
+    lda #SFX_VICTORY.b
+    jsr SpcPlaySfx
     rep #$20
     lda #CLEAR_FRAMES
     sta state_timer
@@ -459,10 +406,14 @@ EnterGameOver:
     jsr PrintStringRow
     lda #TM_TITLE.b
     sta TM
-    lda #INIDISP_FULLBRIGHT.b
-    sta INIDISP
     lda #STATE_OVER.b
     sta game_state
+    lda #SONG_GAMEOVER.b
+    jsr SpcPlaySong
+    lda #SFX_GAMEOVER.b
+    jsr SpcPlaySfx
+    lda #INIDISP_FULLBRIGHT.b
+    sta INIDISP
     lda #NMITIMEN_NMI_JOY.b
     sta NMITIMEN
     rts

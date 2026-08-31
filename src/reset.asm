@@ -62,6 +62,7 @@ Reset:
     lda #INIDISP_FULLBRIGHT.b
     sta INIDISP
     stz TM                          ; backdrop only (T1–T3 color test)
+    jsr InitAudio
     lda #NMITIMEN_NMI_JOY.b
     sta NMITIMEN
 
@@ -73,11 +74,6 @@ MainLoop:
     jsr UpdateBoot
     jmp MainLoop
 MLNotBoot:
-    cmp #STATE_TITLE.b
-    bne MLNotTitle
-    jsr UpdateTitle
-    jmp MainLoop
-MLNotTitle:
     cmp #STATE_MENU.b
     bne MLNotMenu
     jsr UpdateMenu

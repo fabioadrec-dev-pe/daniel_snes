@@ -1,4 +1,4 @@
-; Enemies and coins. Same patrol/stomp rules as the Java game, without audio.
+; Enemies and coins. Same patrol/stomp rules as the Java game.
 ; Walker/fast/tank: ground patrol. Flyer: sine flight + wall turn. Boss: patrol + jump.
 
 .BANK 0 SLOT 0
@@ -1004,6 +1004,8 @@ HCScore:
     sta score_hi
     lda #1
     sta hud_dirty
+    lda #SFX_COIN.b
+    jsr SpcPlaySfx
 HCNext:
     inc tmp0
     jmp HCLoop
@@ -1028,9 +1030,13 @@ HSDo:
     jsr EnemyPtr
     lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
-    beq HSNext
+    bne HSAlive
+    jmp HSNext
+HSAlive:
     jsr OverlapPlayer
-    bcc HSNext
+    bcs HSOv
+    jmp HSNext
+HSOv:
     ; stomp if falling and feet above enemy center (Java)
     rep #$20
     lda pl_vy
@@ -1073,10 +1079,16 @@ HSDo:
     lda.l $7E0000+EN_OFF_HP,x
     dec a
     sta.l $7E0000+EN_OFF_HP,x
-    bne HSBounce
+    bne HSAliveSfx
     lda.l $7E0000+EN_OFF_FLAGS,x
     and #$FE.b
     sta.l $7E0000+EN_OFF_FLAGS,x
+    lda #SFX_DEFEAT.b
+    jsr SpcPlaySfx
+    bra HSBounce
+HSAliveSfx:
+    lda #SFX_MENU.b
+    jsr SpcPlaySfx
 HSBounce:
     rep #$20
     lda #BOUNCE_VEL

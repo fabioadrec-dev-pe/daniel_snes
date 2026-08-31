@@ -363,6 +363,8 @@ HJDo:
     and #$FE.b
     ora #PF_JUMPHELD.b
     sta pl_flags
+    lda #SFX_JUMP.b
+    jsr SpcPlaySfx
     rts
 HJAir:
 HJHeld:
@@ -741,6 +743,8 @@ HPVy:
     sta hud_dirty
     lda #PL_PLAYER_HURT
     sta pl_frame
+    lda #SFX_HURT.b
+    jsr SpcPlaySfx
 HPNo:
     rts
 HPKill:

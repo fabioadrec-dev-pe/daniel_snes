@@ -83,3 +83,24 @@ EndingVeilPal: .INCBIN "gen/ending_veil.pal"
 EndingStory:   .INCBIN "gen/ending_story.bin"
 EndingCredits: .INCBIN "gen/ending_credits.bin"
 .ENDS
+
+.BANK 10 SLOT 0
+.ORGA $8000
+.SECTION "SpcBoot" FORCE
+SpcBoot: .INCBIN "gen/spc_boot.bin"
+.ENDS
+
+.BANK 11 SLOT 0
+.ORGA $8000
+.SECTION "SpcSongsA" FORCE
+SongMenu:     .INCBIN "gen/song_menu.bin"
+SongBoss:     .INCBIN "gen/song_boss.bin"
+SongVictory:  .INCBIN "gen/song_victory.bin"
+SongGameOver: .INCBIN "gen/song_gameover.bin"
+.ENDS
+
+.BANK 12 SLOT 0
+.ORGA $8000
+.SECTION "SpcSongsB" FORCE
+SongStage:    .INCBIN "gen/song_stage.bin"
+.ENDS

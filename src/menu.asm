@@ -1,4 +1,4 @@
-; Main menu from the Java MenuScreen: NOVO JOGO / SAIR, plus a secret
+; Main menu from the Java MenuScreen: NOVO JOGO, plus a secret
 ; sequence (U D L R B Y) that unlocks FASE and VIDAS.
 
 .BANK 0 SLOT 0
@@ -29,6 +29,11 @@ EnterMenu:
     sta INIDISP
     lda #STATE_MENU.b
     sta game_state
+    rep #$20
+    stz state_timer
+    sep #$20
+    lda #SONG_MENU.b
+    jsr SpcPlaySong
     lda #NMITIMEN_NMI_JOY.b
     sta NMITIMEN
     rts
@@ -37,6 +42,8 @@ RedrawMenu:
     jsr PpuBlankOn
     jsr DrawMenuBody
     jsr PpuBlankOff
+    lda #SFX_MENU.b
+    jsr SpcPlaySfx
     rts
 
 DrawMenuBody:
@@ -52,26 +59,11 @@ DrawMenuBody:
     ldx #STR_TITLE2
     ldy #7
     jsr PrintStringRow
-    lda menu_unlock
-    bne DMBCheat
     ldx #STR_NOVO
     ldy #14
     jsr PrintStringRow
-    ldx #STR_SAIR
-    ldy #16
-    jsr PrintStringRow
-    lda menu_sel
-    beq DMBSel0
-    lda #FONT_X62.b
-    ldx #9
-    ldy #16
-    jsr PokeBG3
-    lda #FONT_X60.b
-    ldx #22
-    ldy #16
-    jsr PokeBG3
-    jmp DMBHint
-DMBSel0:
+    lda menu_unlock
+    bne DMBCheat
     lda #FONT_X62.b
     ldx #9
     ldy #14
@@ -103,9 +95,6 @@ DMBCheat:
     ldx #19
     ldy #16
     jsr PokeBG3
-    ldx #STR_SAIR
-    ldy #18
-    jsr PrintStringRow
     lda menu_sel
     asl a
     clc
@@ -136,6 +125,14 @@ DMBHint:
 UpdateMenu:
     sep #$20
     .ACCU 8
+    rep #$20
+    lda joy_pressed
+    ora joy2_pressed
+    beq UMNoReset
+    sep #$20
+    stz state_timer
+UMNoReset:
+    sep #$20
     jsr MenuCheat
     jsr MenuMove
     lda menu_unlock
@@ -149,15 +146,23 @@ UMConfirm:
     bne UMDo
     lda joy_pressed
     and #(BUTTON_B|BUTTON_A).w
-    beq UMDone
+    beq UMIdle
     sep #$20
     lda menu_swallow
-    bne UMDone
+    bne UMIdle
     bra UMDo8
 UMDo:
     sep #$20
 UMDo8:
     jsr MenuConfirm
+UMIdle:
+    rep #$20
+    inc state_timer
+    lda state_timer
+    cmp #MENU_IDLE_FRAMES.w
+    sep #$20
+    bcc UMDone
+    jsr EnterStreets
 UMDone:
     sep #$20
     rts
@@ -193,14 +198,14 @@ MMNone:
     sep #$20
     rts
 
-; A = option count (2 or 4)
+; A = option count (1 or 3)
 MenuCount:
     lda menu_unlock
-    beq MCTwo
-    lda #4.b
+    beq MCOne
+    lda #3.b
     rts
-MCTwo:
-    lda #2.b
+MCOne:
+    lda #1.b
     rts
 
 MenuAdjust:
@@ -265,19 +270,10 @@ MADone:
 MenuConfirm:
     sep #$20
     lda menu_sel
-    bne MCNotNovo
-    jsr NewGame
-    rts
-MCNotNovo:
-    lda menu_unlock
-    bne MCCheat
-    jsr EnterTitle
-    rts
-MCCheat:
-    lda menu_sel
-    cmp #3.b
     bne MCStay
-    jsr EnterTitle
+    lda #SFX_SELECT.b
+    jsr SpcPlaySfx
+    jsr NewGame
 MCStay:
     rts
 
