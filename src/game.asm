@@ -294,8 +294,93 @@ TTDone:
     rts
 
 HandleCheckpoints:
-    ; two checkpoints baked; activate when pl_x >= cp.x
-    ; skip if already reached
+    sep #$20
+    lda n_chk
+    bne HCkpLoop
+    jmp HCkpDone
+HCkpLoop:
+    lda chk_reached
+    cmp n_chk
+    bcc HCkpBody
+    jmp HCkpDone
+HCkpBody:
+    lda map_rows
+    sta WRMPYA
+    lda map_cols
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc #MAP_HEADER
+    sta tmp1
+    sep #$20
+    lda n_enemies
+    sta WRMPYA
+    lda #5
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc tmp1
+    sta tmp1
+    sep #$20
+    lda n_coins
+    sta WRMPYA
+    lda #4
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc tmp1
+    sta tmp1
+    sep #$20
+    lda chk_reached
+    sta WRMPYA
+    lda #4
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
+    clc
+    adc tmp1
+    clc
+    adc #MAP_WRAM & $FFFF
+    sta tmp1
+    lda pl_x
+    clc
+    adc #8.w
+    tay
+    lda tmp1
+    tax
+    cmp.l $7E0000,x
+    bcc HCkpSkip
+    lda.l $7E0000,x
+    sta respawn_x
+    lda.l $7E0002,x
+    sta respawn_y
+    sep #$20
+    inc chk_reached
+    lda #SFX_SELECT.b
+    jsr SpcPlaySfx
+    jmp HCkpLoop
+HCkpSkip:
+HCkpDone:
+    sep #$20
     rts
 
 CheckGoal:

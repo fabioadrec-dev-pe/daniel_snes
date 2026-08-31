@@ -693,6 +693,11 @@ CSSkip:
 KillPlayer:
     sep #$20
     lda pl_flags
+    and #PF_DEAD.b
+    bne KPDone
+    lda #SFX_HURT.b
+    jsr SpcPlaySfx
+    lda pl_flags
     ora #PF_DEAD.b
     sta pl_flags
     stz pl_vx
@@ -704,6 +709,7 @@ KillPlayer:
     sep #$20
     lda #PL_PLAYER_DEAD
     sta pl_frame
+KPDone:
     rts
 
 HurtPlayer:
