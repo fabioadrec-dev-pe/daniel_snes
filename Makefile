@@ -64,7 +64,7 @@ all: $(ROM)
 	@cp -f $(ROM) build/daniel.sfc
 	@cp -f $(ROM) build/pong.sfc
 
-src/gen/meta.inc: tools/port_assets.py
+src/gen/meta.inc: tools/port_assets.py assets/menu_bg.png
 	python3 tools/port_assets.py --assets $(JAVA_ASSETS) --out src/gen
 
 src/gen/spc_brr.bin src/gen/spc_songs.inc src/gen/spc_dir.bin src/gen/spc_pitch.bin: tools/build_spc.py

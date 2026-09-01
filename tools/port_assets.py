@@ -896,10 +896,20 @@ def main() -> None:
     out_names = [f"bg{i}" for i in range(1, 6)] + ["menu"]
     bg_lens = []
     for src_name, dst in zip(bg_names, out_names):
-        im = Image.open(assets / "textures" / src_name).convert("RGB")
+        # Keep the title-screen source in the repository so it is reproducible
+        # even when the original Java asset folder is not mounted.
+        local_menu = Path(__file__).resolve().parent.parent / "assets" / "menu_bg.png"
+        source = local_menu if dst == "menu" and local_menu.exists() else assets / "textures" / src_name
+        im = Image.open(source).convert("RGB")
         if dst == "menu":
             im = crop_dark_margins(im)
         im = im.resize((256, 224), Image.Resampling.NEAREST)
+        if dst == "menu" and local_menu.exists():
+            # A photo can generate almost one unique tile per 8x8 block.
+            # Pixelating at 128x112 keeps the image inside the SNES tile budget
+            # while the final framebuffer remains the native 256x224 size.
+            im = im.resize((128, 112), Image.Resampling.BILINEAR)
+            im = im.resize((256, 224), Image.Resampling.NEAREST)
         q, colors = quantize_opaque(im, 16)
         chr_data, tilemap, ntiles = image_to_unique_4bpp(q, max_tiles=700)
         (out / f"{dst}.chr").write_bytes(chr_data)
