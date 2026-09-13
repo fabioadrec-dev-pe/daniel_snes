@@ -46,7 +46,7 @@
     pl_yf           db
     pl_vx           dw
     pl_vy           dw
-    pl_flags        db          ; bit0 on_ground, bit1 face_r, bit2 jump_held, bit3 dead, bit4 win, bit5 hurt
+    pl_flags        db          ; bit0 on_ground, bit1 face_r, bit2 jump_held, bit3 dead, bit4 win, bit5 hurt, bit6 double_used
     pl_frame        db
     pl_invuln       db
     pl_anim         db
@@ -119,3 +119,4 @@
 .DEFINE PF_DEAD     $08
 .DEFINE PF_WIN      $10
 .DEFINE PF_HURT     $20
+.DEFINE PF_DJ_USED  $40

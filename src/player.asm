@@ -360,13 +360,34 @@ HJDo:
     sta pl_vy
     sep #$20
     lda pl_flags
-    and #$FE.b
+    ; A ground jump starts a fresh jump cycle and makes the extra jump available.
+    and #$BE.b
     ora #PF_JUMPHELD.b
     sta pl_flags
     lda #SFX_JUMP.b
     jsr SpcPlaySfx
     rts
 HJAir:
+    ; One extra jump is allowed after leaving the ground. It requires a new
+    ; button press, so holding the first jump button cannot trigger it.
+    rep #$20
+    lda joy_pressed
+    and #(BUTTON_B|BUTTON_A).w
+    beq HJHeld
+    sep #$20
+    lda pl_flags
+    and #PF_DJ_USED.b
+    bne HJHeld
+    rep #$20
+    lda #JUMP_VEL
+    sta pl_vy
+    sep #$20
+    lda pl_flags
+    ora #(PF_DJ_USED|PF_JUMPHELD).b
+    sta pl_flags
+    lda #SFX_JUMP.b
+    jsr SpcPlaySfx
+    rts
 HJHeld:
     rep #$20
     lda joy_current
@@ -566,6 +587,7 @@ ResolveY:
     sep #$20
     lda pl_flags
     ora #PF_GROUND.b
+    and #$BF.b
     sta pl_flags
     bra RYDone
 RYMove:
@@ -595,6 +617,7 @@ RYMove:
     sep #$20
     lda pl_flags
     ora #PF_GROUND.b
+    and #$BF.b
     sta pl_flags
     lda #1
     sta hit_d
