@@ -94,7 +94,6 @@ SpcBoot: .INCBIN "gen/spc_boot.bin"
 .ORGA $8000
 .SECTION "SpcSongsA" FORCE
 SongMenu:     .INCBIN "gen/song_menu.bin"
-SongBoss:     .INCBIN "gen/song_boss.bin"
 SongVictory:  .INCBIN "gen/song_victory.bin"
 SongGameOver: .INCBIN "gen/song_gameover.bin"
 .ENDS
@@ -103,4 +102,10 @@ SongGameOver: .INCBIN "gen/song_gameover.bin"
 .ORGA $8000
 .SECTION "SpcSongsB" FORCE
 SongStage:    .INCBIN "gen/song_stage.bin"
+.ENDS
+
+.BANK 13 SLOT 0
+.ORGA $8000
+.SECTION "SpcBossSong" FORCE
+SongBoss:     .INCBIN "gen/song_boss.bin"
 .ENDS

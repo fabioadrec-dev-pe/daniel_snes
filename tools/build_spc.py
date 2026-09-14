@@ -82,6 +82,22 @@ BASS_PROGRAMS = {35, 37, 39}
 # the authored musical roles instead of selecting only by note count: drums,
 # bass, lead, two harmony parts and the guitar arpeggio.
 STAGE_CHANNELS = (9, 1, 3, 2, 5, 8)
+# Pet Shop Boys six-channel reduction: use every effective channel in the
+# supplied _6_ch arrangement (four melodic parts plus drums), preserving the
+# complete harmony and leaving only the sixth SPC music voice unused.
+BOSS_CHANNELS = (9, 0, 1, 2, 3)
+# Boss mix: the two upper voices are reduced by 50%; the two chord voices are
+# kept present and separated so the harmonic movement remains clear.
+BOSS_CHANNEL_GAINS = {0: 50, 1: 50, 2: 100, 3: 100, 9: 100}
+BOSS_INSTRUMENTS = {
+    0: INST_FLUTE,    # Pan Flute / lead
+    1: INST_SQUARE,   # Synth Brass 2 / upper counterline
+    2: INST_STRINGS,  # harmony voice A
+    3: INST_PAD,      # harmony voice B
+}
+# Values here use the MIDI-pan scale consumed by emit_track:
+# <=48 left, 49..79 center, >=80 right.
+BOSS_PANS = {0: 64, 1: 32, 2: 32, 3: 96, 9: 64}
 
 
 def read_vlq(data: bytes, i: int) -> tuple[int, int]:
@@ -422,9 +438,20 @@ def compile_stage_midi(path: Path, voice_limit: int = 6) -> bytes:
     return bytes(header) + b"".join(encoded)
 
 
-def compile_midi(path: Path, voice_limit: int = 6) -> bytes:
+def compile_midi(
+    path: Path,
+    voice_limit: int = 6,
+    channels: tuple[int, ...] | None = None,
+    channel_gains: dict[int, int] | None = None,
+    instrument_overrides: dict[int, int] | None = None,
+    pan_overrides: dict[int, int] | None = None,
+) -> bytes:
     parsed = parse_midi(path)
-    channels = pick_channels(parsed, voice_limit)
+    if channels is None:
+        channels = tuple(pick_channels(parsed, voice_limit))
+    else:
+        available = {ev[1] for ev in parsed["events"] if ev[2] == "on"}
+        channels = tuple(ch for ch in channels if ch in available)[:voice_limit]
     by_ch: dict[int, list] = defaultdict(list)
     inst_at: dict[int, int] = dict(parsed["programs"])
     for tick, ch, kind, a, b in parsed["events"]:
@@ -435,13 +462,27 @@ def compile_midi(path: Path, voice_limit: int = 6) -> bytes:
         raw = by_ch.get(ch, [])
         if ch == 9:
             evs = drum_events(raw)
-            tracks.append(emit_track(evs, True))
-            continue
-        prog = inst_at.get(ch, 0)
-        evs = mono_events(raw, bass=prog in BASS_PROGRAMS)
-        # Seed instrument.
-        seeded = [(0, "inst", gm_inst(prog, ch), 0, 0)] + evs
-        tracks.append(emit_track(seeded, False))
+        else:
+            prog = inst_at.get(ch, 0)
+            evs = mono_events(raw, bass=prog in BASS_PROGRAMS)
+            inst = (instrument_overrides or {}).get(ch, gm_inst(prog, ch))
+            evs = [
+                (frame, kind, inst if kind == "inst" else a, b, c)
+                for frame, kind, a, b, c in evs
+            ]
+            evs.insert(0, (0, "inst", inst, 0, 0))
+
+        gain = max(1, min(127, (channel_gains or {}).get(ch, 100)))
+        mixed = [(0, "vol", gain, 0, 0)]
+        if ch in (pan_overrides or {}):
+            mixed.append((0, "pan", pan_overrides[ch], 0, 0))
+        for frame, kind, a, b, c in evs:
+            if kind == "vol":
+                a = max(1, min(127, (a * gain + 50) // 100))
+            elif kind == "pan" and ch in (pan_overrides or {}):
+                continue
+            mixed.append((frame, kind, a, b, c))
+        tracks.append(emit_track(mixed, ch == 9))
     while len(tracks) < 6:
         tracks.append(bytes((254, OP_REST, 254, 0, OP_LOOP, 0)))
     header = bytearray(16)
@@ -635,6 +676,11 @@ def main() -> None:
     ap.add_argument("--assets", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument(
+        "--boss-midi",
+        type=Path,
+        help="optional MIDI file to use for the boss song",
+    )
+    ap.add_argument(
         "--timbre-bank",
         type=Path,
         help="optional BRR bank whose first eight melodic timbres replace the generated ones",
@@ -719,10 +765,18 @@ def main() -> None:
     (out / "spc_brr.bin").write_bytes(bytes(brr_blob))
 
     java: Path = args.java
+    boss_midi = args.boss_midi or (java / "boss.mid")
     songs = {
         "song_menu.bin": compile_midi(java / "menu_lady.mid", voice_limit=4),
         "song_stage.bin": compile_stage_midi(java / "music.mid"),
-        "song_boss.bin": compile_midi(java / "boss.mid", voice_limit=4),
+        "song_boss.bin": compile_midi(
+            boss_midi,
+            voice_limit=6,
+            channels=BOSS_CHANNELS,
+            channel_gains=BOSS_CHANNEL_GAINS,
+            instrument_overrides=BOSS_INSTRUMENTS,
+            pan_overrides=BOSS_PANS,
+        ),
         "song_victory.bin": compile_melody(
             [(72, 9), (76, 9), (79, 9), (84, 18), (79, 9), (84, 30)] * 2,
             INST_SQUARE,
