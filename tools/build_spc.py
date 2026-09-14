@@ -28,6 +28,8 @@ INST_KICK = 9
 INST_SNARE = 10
 INST_HAT = 11
 INST_SFX0 = 12  # jump .. boss = 12..21
+TIMBRE_COUNT = 8
+TIMBRE_BRR_BYTES = TIMBRE_COUNT * 18  # one 2-block loop per melodic timbre
 
 GM_TO_INST = {
     0: INST_PIANO,
@@ -632,6 +634,11 @@ def main() -> None:
     ap.add_argument("--java", type=Path, required=True)
     ap.add_argument("--assets", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument(
+        "--timbre-bank",
+        type=Path,
+        help="optional BRR bank whose first eight melodic timbres replace the generated ones",
+    )
     args = ap.parse_args()
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -683,6 +690,29 @@ def main() -> None:
 
     for i, (st, lp) in enumerate(zip(starts, loops)):
         struct.pack_into("<HH", dir_blob, i * 4, st, lp)
+
+    if args.timbre_bank:
+        improved = args.timbre_bank.read_bytes()
+        if len(improved) < TIMBRE_BRR_BYTES:
+            raise SystemExit(
+                f"{args.timbre_bank}: expected at least {TIMBRE_BRR_BYTES} bytes "
+                "for the eight melodic timbres"
+            )
+        timbres = improved[:TIMBRE_BRR_BYTES]
+        for i in range(TIMBRE_COUNT):
+            headers = timbres[i * 18 : (i + 1) * 18 : 9]
+            if headers[0] & 1 or not headers[1] & 1:
+                raise SystemExit(
+                    f"{args.timbre_bank}: timbre {i} must have exactly two BRR blocks "
+                    "with END only on the second block"
+                )
+        # The improved bank uses the same fixed two-block slots. Replace only
+        # the melodic timbres; percussion and SFX remain from the Java bank.
+        brr_blob[:TIMBRE_BRR_BYTES] = timbres
+        print(
+            f"timbres: replaced first {TIMBRE_BRR_BYTES} bytes from "
+            f"{args.timbre_bank}; percussion/SFX preserved"
+        )
 
     (out / "spc_pitch.bin").write_bytes(pitch_table())
     (out / "spc_dir.bin").write_bytes(bytes(dir_blob))

@@ -20,6 +20,12 @@ OBJ     := build/main-$(COLOR).o
 LINK    := build/link-$(COLOR)
 
 JAVA_ASSETS ?= /run/media/fabio/Dados/Fabio/dan-java/DanielDoBolosAdventure/assets
+TIMBRE_BANK ?= spc_brr_melhora_timbres.bin
+
+ifneq ($(wildcard $(TIMBRE_BANK)),)
+TIMBRE_ARG := --timbre-bank $(TIMBRE_BANK)
+TIMBRE_INPUT := $(TIMBRE_BANK)
+endif
 
 SRC := \
 	src/main.asm \
@@ -67,8 +73,8 @@ all: $(ROM)
 src/gen/meta.inc: tools/port_assets.py assets/menu_bg.png
 	python3 tools/port_assets.py --assets $(JAVA_ASSETS) --out src/gen
 
-src/gen/spc_brr.bin src/gen/spc_songs.inc src/gen/spc_dir.bin src/gen/spc_pitch.bin: tools/build_spc.py
-	python3 tools/build_spc.py --java $(JAVA_ROOT) --assets $(JAVA_ASSETS) --out src/gen
+src/gen/spc_brr.bin src/gen/spc_songs.inc src/gen/spc_dir.bin src/gen/spc_pitch.bin: tools/build_spc.py $(TIMBRE_INPUT)
+	python3 tools/build_spc.py --java $(JAVA_ROOT) --assets $(JAVA_ASSETS) $(TIMBRE_ARG) --out src/gen
 
 build/spc.o: src/spc.asm src/gen/spc_brr.bin src/gen/spc_dir.bin src/gen/spc_pitch.bin
 	@mkdir -p build
@@ -103,7 +109,7 @@ clean:
 
 assets:
 	python3 tools/port_assets.py --assets $(JAVA_ASSETS) --out src/gen
-	python3 tools/build_spc.py --java $(JAVA_ROOT) --assets $(JAVA_ASSETS) --out src/gen
+	python3 tools/build_spc.py --java $(JAVA_ROOT) --assets $(JAVA_ASSETS) $(TIMBRE_ARG) --out src/gen
 
 toolchain:
 	@mkdir -p tools
