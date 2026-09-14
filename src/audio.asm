@@ -12,6 +12,7 @@ InitAudio:
     lda #$FF.b
     sta spc_song
     sta spc_loaded
+    stz spc_sfx_seq
     jsr SpcUploadDriver
     ; Load and start the menu song before the first menu frame is shown.
     ; The SPC driver starts it as soon as the upload completes.
@@ -283,6 +284,9 @@ SpcCommandSfx:
     pha
     lda spc_sfx
     sta APUIO1
+    inc spc_sfx_seq
+    lda spc_sfx_seq
+    sta APUIO2
     pla
     jsr SpcCommandRaw
     rts

@@ -1121,14 +1121,44 @@ HSLoop:
     bcc HSDo
     rts
 HSDo:
+    ; Build one bit for this enemy. The latch is per contact, so the same
+    ; enemy cannot retrigger its SFX every frame while overlap persists.
+    rep #$20
+    lda #$0001.w
+    sta tmp1
+    lda obj_i
+    and #$00FF.w
+    tay
+    beq HSBitReady
+HSBitShift:
+    asl tmp1
+    dey
+    bne HSBitShift
+HSBitReady:
+    sep #$20
     jsr EnemyPtr
     lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
     bne HSAlive
+    jsr HSClearContact
     jmp HSNext
 HSAlive:
     jsr OverlapPlayer
-    bcs HSOv
+    bcs HSContact
+    jsr HSClearContact
+    jmp HSNext
+HSContact:
+    rep #$20
+    lda stomp_mask
+    and tmp1
+    bne HSAlreadyContact
+    lda stomp_mask
+    ora tmp1
+    sta stomp_mask
+    sep #$20
+    bra HSOv
+HSAlreadyContact:
+    sep #$20
     jmp HSNext
 HSOv:
     ; stomp if falling and feet above enemy center (Java)
@@ -1195,6 +1225,16 @@ HSHurt16:
 HSNext:
     inc obj_i
     jmp HSLoop
+
+; Clear the current enemy's contact bit. tmp1 contains its one-hot mask.
+HSClearContact:
+    rep #$20
+    lda tmp1
+    eor #$FFFF.w
+    and stomp_mask
+    sta stomp_mask
+    sep #$20
+    rts
 
 ; X = enemy. Carry set if overlap. Uses type hitbox (Java sizes).
 OverlapPlayer:

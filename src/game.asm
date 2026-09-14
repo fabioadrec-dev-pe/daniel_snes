@@ -163,6 +163,9 @@ LSBEnOk:
     sta n_coins
 LSBCnOk:
     stz chk_reached
+    rep #$20
+    stz stomp_mask
+    sep #$20
     ; world_w = cols * 16
     lda map_cols
     sta WRMPYA

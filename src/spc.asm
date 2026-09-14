@@ -55,8 +55,7 @@
     sfx_t7      db
     sfx_k6      db              ; KOFF hold ticks for voice 6
     sfx_k7      db              ; KOFF hold ticks for voice 7
-    sfx_last    db              ; last accepted SFX id
-    sfx_gap     db              ; frames needed before same id can rearm
+    sfx_seq_seen db              ; last CMD_SFX token consumed from APUIO2
     tmp0        db
     tmp1        db
     tmp2        db
@@ -97,8 +96,7 @@ SpcStart:
     MOV     sfx_t7, #$00
     MOV     sfx_k6, #$00
     MOV     sfx_k7, #$00
-    MOV     sfx_last, #$FF
-    MOV     sfx_gap, #$00
+    MOV     sfx_seq_seen, #$00
 
 MainLoop:
     CALL    !CheckCmd
@@ -113,7 +111,9 @@ TickOne:
 
 CheckCmd:
     MOV     A, APUIO0
-    BEQ     CmdDone
+    BNE     CheckCmdActive
+    RET
+CheckCmdActive:
     MOV     cmd_id, A
     MOV     A, APUIO1
     MOV     cmd_arg, A
@@ -129,6 +129,13 @@ CheckPlayCmd:
 CheckSfxCmd:
     CMP     A, #CMD_SFX
     BNE     CheckStopCmd
+    ; APUIO2 carries a monotonically changing event token. This lets two
+    ; identical SFX ids be accepted consecutively while rejecting a stale
+    ; port value that is observed more than once.
+    MOV     A, APUIO2
+    CMP     A, sfx_seq_seen
+    BEQ     CmdAck
+    MOV     sfx_seq_seen, A
     JMP     !DoSfx
 CheckStopCmd:
     CMP     A, #CMD_STOP
@@ -203,8 +210,6 @@ DoStop:
     MOV     sfx_t7, #$00
     MOV     sfx_k6, #$00
     MOV     sfx_k7, #$00
-    MOV     sfx_last, #$FF
-    MOV     sfx_gap, #$00
     MOV     A, #$FF
     MOV     Y, #$5C
     CALL    !DspW
@@ -215,6 +220,9 @@ DoPlay:
     JMP     !CmdAck
 
 DoSfx:
+    ; Keep the echo visible while PlaySfx runs so the 65816 can complete its
+    ; handshake. sfx_seq_seen blocks a stale command token from being
+    ; processed again; CmdAck releases the port after DSP programming.
     CALL    !PlaySfx
     JMP     !CmdAck
 
@@ -227,8 +235,6 @@ StartSong:
     MOV     sfx_t7, #$00
     MOV     sfx_k6, #$00
     MOV     sfx_k7, #$00
-    MOV     sfx_last, #$FF
-    MOV     sfx_gap, #$00
     MOV     A, #$FF             ; koff music and SFX voices
     MOV     Y, #$5C
     CALL    !DspW
@@ -284,11 +290,37 @@ InitCh:
 
 ; Apply pending events whose wait has expired, then tick durations.
 TickSfx:
-    MOV     A, sfx_gap
-    BEQ     TickSfxGapDone
-    DEC     A
-    MOV     sfx_gap, A
-TickSfxGapDone:
+    ; ENDX is the DSP's authoritative end-of-sample indication. Read it in
+    ; addition to the duration table so a one-shot can never remain audible
+    ; if a BRR decoder/emulator keeps decoding after the E flag.
+    CALL    !ReadEndX
+    MOV     tmp0, A
+    MOV     A, sfx_used
+    AND     A, #$40
+    BEQ     TickSfxEnd6Done
+    MOV     A, tmp0
+    AND     A, #$40
+    BEQ     TickSfxEnd6Done
+    MOV     sfx_t6, #$00
+    MOV     sfx_k6, #$00
+    MOV     A, sfx_used
+    AND     A, #$BF
+    MOV     sfx_used, A
+    CALL    !StopSfx6
+TickSfxEnd6Done:
+    MOV     A, sfx_used
+    AND     A, #$80
+    BEQ     TickSfxEnd7Done
+    MOV     A, tmp0
+    AND     A, #$80
+    BEQ     TickSfxEnd7Done
+    MOV     sfx_t7, #$00
+    MOV     sfx_k7, #$00
+    MOV     A, sfx_used
+    AND     A, #$7F
+    MOV     sfx_used, A
+    CALL    !StopSfx7
+TickSfxEnd7Done:
     ; KOFF is sampled by the DSP asynchronously. Hold each stop request for
     ; four 60 Hz ticks so a busy DSP cannot lose the only KOFF write.
     MOV     A, sfx_k6
@@ -338,6 +370,8 @@ StopSfx6:
     MOV     Y, #$5C
     CALL    !DspW
     MOV     A, #$00
+    MOV     Y, #$67             ; GAIN: force the one-shot envelope silent
+    CALL    !DspW
     MOV     Y, #$60
     CALL    !DspW
     MOV     Y, #$61
@@ -349,6 +383,8 @@ StopSfx7:
     MOV     Y, #$5C
     CALL    !DspW
     MOV     A, #$00
+    MOV     Y, #$77             ; GAIN: force the one-shot envelope silent
+    CALL    !DspW
     MOV     Y, #$70
     CALL    !DspW
     MOV     Y, #$71
@@ -666,19 +702,10 @@ KonStore:
     RET
 
 PlaySfx:
-    ; A duplicated command or a collision that remains true must not turn
-    ; one event into an endless retrigger. The same id is rearmed only after
-    ; three ticks without another copy of that command.
-    MOV     A, cmd_arg
-    CMP     A, sfx_last
-    BNE     SfxNotRepeat
-    MOV     A, sfx_gap
-    BEQ     SfxNotRepeat
-    MOV     sfx_gap, #$03
-    RET
-SfxNotRepeat:
-    ; Select a free voice 6 or 7. Never retrigger a voice while its BRR
-    ; sample is active: that restart is what produces phase noise.
+    ; Every command is a new event, including consecutive commands with the
+    ; same id. Select a free voice without filtering by the previous SFX id.
+    ; Never retrigger a voice while its BRR sample is active: that restart is
+    ; what produces phase noise.
     MOV     A, sfx_rr
     EOR     A, #$01
     MOV     sfx_rr, A
@@ -737,9 +764,6 @@ SfxVoiceFree:
     MOV     A, sfx_used
     OR      A, tmp0
     MOV     sfx_used, A
-    MOV     A, cmd_arg
-    MOV     sfx_last, A
-    MOV     sfx_gap, #$03
     ; Duration in 60 Hz ticks for the 12 kHz one-shot samples.
     MOV     Y, cmd_arg
     MOV     A, !SfxFrames+Y
@@ -801,6 +825,12 @@ SfxTimerDone:
     MOV     Y, A
     MOV     A, #$48
     CALL    !DspW
+    ; Clear stale ENDX flags before keying this voice. The DSP clears ENDX
+    ; when KON is accepted, but clearing it here avoids a race on the first
+    ; tick when a previous one-shot ended on the same voice.
+    MOV     A, #$00
+    MOV     Y, #$7C
+    CALL    !DspW
     MOV     A, tmp3
     CMP     A, #$07
     BEQ     SfxKon7
@@ -846,6 +876,22 @@ DspInit:
     MOV     A, #$20             ; unmute, echo stays off
     MOV     Y, #$6C
     CALL    !DspW
+    RET
+
+; Read the DSP's end-of-sample flags. A short settle is required after the
+; address write, just like for DSP writes.
+ReadEndX:
+    MOV     Y, #$7C
+    MOV     DSPADDR, Y
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    NOP
+    MOV     A, DSPDATA
     RET
 
 ; A = value, Y = DSP register

@@ -102,7 +102,9 @@
     end_last        dw              ; last bottom line painted
     spc_song        db
     spc_sfx         db
+    spc_sfx_seq     db              ; token for each SFX event
     spc_loaded      db              ; song id currently in ARAM $8000, $FF = none
+    stomp_mask      dw              ; enemies currently overlapping the player
 .ENDE
 
 .ENUM $0200
