@@ -77,18 +77,20 @@ GetTile:
     cmp map_cols
     bcs GTAir
     sta tmp_col
+    ; row * map_cols: use the SNES multiplier instead of a repeated-add loop.
+    ; Enemy patrols call GetTile several times per frame; the old loop was the
+    ; source of the phase-4 slowdown once the stage had nine enemies.
+    sep #$20
     lda tmp_row
-    and #$00FF.w
-    tay
-    lda #0.w
-    cpy #0.w
-    beq GTMulZ
-GTMul:
-    clc
-    adc map_cols
-    dey
-    bne GTMul
-GTMulZ:
+    sta WRMPYA
+    lda map_cols
+    sta WRMPYB
+    nop
+    nop
+    nop
+    nop
+    rep #$20
+    lda RDMPYL
     clc
     adc tmp_col
     clc

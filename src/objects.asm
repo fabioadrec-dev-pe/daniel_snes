@@ -259,6 +259,22 @@ UELoop:
     rts
 UEGo:
     jsr EnemyPtr
+    ; Distant enemies do not affect the player and need not run patrol AI.
+    ; Culling them avoids doing several tile probes for every off-screen enemy,
+    ; which was visible as a slowdown in the later stages.
+    rep #$20
+    .ACCU 16
+    lda.l $7E0000+EN_OFF_X,x
+    clc
+    adc #32.w
+    cmp cam_x
+    bcc UENext
+    lda cam_x
+    clc
+    adc #288.w
+    cmp.l $7E0000+EN_OFF_X,x
+    bcc UENext
+    sep #$20
     lda.l $7E0000+EN_OFF_FLAGS,x
     and #EF_ALIVE.b
     beq UENext
@@ -291,6 +307,7 @@ UEAnim:
     lda #$00.b
     sta.l $7E0000+EN_OFF_ANIM,x
 UENext:
+    sep #$20
     inc obj_i
     jmp UELoop
 

@@ -74,7 +74,9 @@ def build_stage(stage_index: int) -> dict:
     checkpoints: list[tuple[int, int]] = []
 
     for c in range(cols):
-        g[top_row][c] = GRASS
+        # The SNES stage uses the beach/soil tileset.  GRASS is the generic
+        # Java tile and leaves a conspicuous green strip above the sand.
+        g[top_row][c] = DIRT
         for r in range(top_row):
             g[r][c] = DIRT
 
@@ -295,6 +297,29 @@ def quantize_opaque(im: Image.Image, colors: int = 16) -> tuple[Image.Image, lis
     return img, entries
 
 
+def quantize_background(im: Image.Image) -> tuple[Image.Image, list[tuple[int, int, int]]]:
+    """Quantize an opaque BG2 image while reserving index 0 for transparency.
+
+    BG2 is a photo/bitmap and has no transparent pixels.  Mapping its darkest
+    color to index 0 makes those real pixels transparent on the SNES, exposing
+    the backdrop as blue bars or gaps.  Keep index 0 unused and put the 15
+    quantized colors in indices 1..15 instead.
+    """
+    rgb = im.convert("RGB")
+    q = rgb.quantize(colors=15, method=Image.Quantize.MEDIANCUT)
+    colors = pal_colors(q, 15)
+    img = Image.new("P", im.size)
+    src = q.load()
+    dst = img.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            dst[x, y] = (src[x, y] % 15) + 1
+    entries = [(0, 0, 0)] + colors
+    pal_bytes = [c for rgb in entries for c in rgb]
+    img.putpalette(pal_bytes + [0] * (768 - len(pal_bytes)))
+    return img, entries
+
+
 def image_to_4bpp_tiles(im: Image.Image, palette: list[tuple[int, int, int]]) -> bytes:
     """Split a palette image into row-major 8x8 4bpp tiles."""
     w, h = im.size
@@ -346,8 +371,12 @@ def image_to_unique_4bpp(
     tilemap = bytearray()
     for y in range(32):
         for x in range(32):
-            if y < rows and x < cols:
-                tile = ids[y * cols + x]
+            if rows and cols:
+                # The source is 224px high (28 tiles), while the SNES map is
+                # 32 tiles high.  Extend the edge instead of placing tile 0;
+                # tile 0 is transparent and would reveal the backdrop after
+                # the game's one-pixel vertical scroll.
+                tile = ids[min(y, rows - 1) * cols + min(x, cols - 1)]
             else:
                 tile = 0
             tilemap += struct.pack("<H", (tile & 0x3FF) | attr)
@@ -910,7 +939,7 @@ def main() -> None:
             # while the final framebuffer remains the native 256x224 size.
             im = im.resize((128, 112), Image.Resampling.BILINEAR)
             im = im.resize((256, 224), Image.Resampling.NEAREST)
-        q, colors = quantize_opaque(im, 16)
+        q, colors = quantize_background(im)
         chr_data, tilemap, ntiles = image_to_unique_4bpp(q, max_tiles=700)
         (out / f"{dst}.chr").write_bytes(chr_data)
         (out / f"{dst}.map").write_bytes(tilemap)
@@ -930,7 +959,7 @@ def main() -> None:
     end_im = end_im.crop((left, top, left + cw, top + ch))
     end_im = end_im.resize((256, 224), Image.Resampling.LANCZOS)
     end_im = ImageEnhance.Contrast(end_im).enhance(1.12)
-    end_q, end_colors = quantize_opaque(end_im, 16)
+    end_q, end_colors = quantize_background(end_im)
     end_chr, end_map, end_ntiles = image_to_unique_4bpp(end_q, max_tiles=752, nearest=True)
     (out / "ending.chr").write_bytes(end_chr)
     (out / "ending.map").write_bytes(end_map)
