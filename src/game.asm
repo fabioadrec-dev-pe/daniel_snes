@@ -42,12 +42,18 @@ EnterStage:
     jsr LoadStageBlob
     lda boss_flag
     beq ESStageBgm
+    lda spc_loaded
+    cmp #SONG_BOSS.b
+    beq ESLoadGfx
     lda #SONG_BOSS.b
     jsr SpcPlaySong
     lda #SFX_BOSS.b
     jsr SpcPlaySfx
     bra ESLoadGfx
 ESStageBgm:
+    lda spc_loaded
+    cmp #SONG_STAGE.b
+    beq ESLoadGfx
     lda #SONG_STAGE.b
     jsr SpcPlaySong
 ESLoadGfx:
